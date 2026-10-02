@@ -1,0 +1,28 @@
+Local quotation retrieval corpus: King James Version, standardized 1769 text.
+Source: CrossWire Bible Society and eBible.org.
+https://ebible.org/eng-kjv/copyright.htm
+https://ebible.org/Scriptures/eng-kjv_vpl.zip
+
+The source identifies this text as public domain outside the United Kingdom
+and notes Crown/letters-patent restrictions on printing/importing printed copies
+in the United Kingdom. Preserve this notice and review territory-specific
+distribution requirements before a worldwide commercial release.
+
+Gazely's corpus retains the 66-book canon used by its reference metadata.
+Index normalization is for matching only; original verse wording remains in
+kjv.tsv. Retrieval suggestions are evidence for a reference, not a guarantee
+that the preacher quoted the KJV or an instruction to change presentation version.
+
+Archive and derived-file hashes are in provenance.json. Inference and lookup
+are offline after installation. No presentation application's files were read
+or modified to obtain this text.
+
+Additional retrieval corpus: World English Bible, Protestant edition (engwebp).
+https://ebible.org/details.php?id=engwebp
+https://ebible.org/Scriptures/engwebp_vpl.zip
+The publisher dedicates the text to the public domain. World English Bible is
+a trademark of eBible.org. web-search.tsv preserves verse wording; it contains
+only verse keys shared with the canonical KJV corpus. Source and derived hashes
+and excluded-line counts are recorded in web-provenance.json.
+Modern-language text is used to search for references, not to select an output
+translation. Gazely still previews KJV and defaults new speech references to KJV.

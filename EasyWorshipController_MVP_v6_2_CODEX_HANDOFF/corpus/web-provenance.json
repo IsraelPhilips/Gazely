@@ -1,0 +1,10 @@
+﻿{
+    "source":  "https://ebible.org/Scriptures/engwebp_vpl.zip",
+    "license":  "Public domain; World English Bible name is a trademark of eBible.org",
+    "purpose":  "Retrieval only; presentation remains KJV by default",
+    "archiveSha256":  "7D2E0B91BA43E2500FCAB9C64D9DB1962750DEEFF4E1186AED4C30220F5689BE",
+    "derivedSha256":  "D754FCE21F4C037C4FEAE332CC13FC7DB3D8CC13A4E6E67A65FF8409D39CC7B5",
+    "verses":  31095,
+    "excluded":  8,
+    "retrievedUtc":  "2026-10-01T12:46:27.2678013Z"
+}

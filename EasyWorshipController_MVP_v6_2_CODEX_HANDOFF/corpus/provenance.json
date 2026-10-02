@@ -1,0 +1,11 @@
+{
+  "source_url": "https://ebible.org/Scriptures/eng-kjv_vpl.zip",
+  "rights_url": "https://ebible.org/eng-kjv/copyright.htm",
+  "license": "Public domain outside the United Kingdom; retain publisher notice concerning UK printing rights before worldwide release.",
+  "archive_sha256": "c0526ded109f413faf90091d63352fd8426147e138686b16ce94a640fdef197f",
+  "corpus_sha256": "f58138b9c9c78f18d71c8b730522947eac992cddf493301bdce6035ffd6df294",
+  "verses": 31102,
+  "books": 66,
+  "edition": "KJV standardized 1769 text from CrossWire/eBible",
+  "processing": "Retained 66-book canon, converted reference keys to canonical app names and tabs; verse wording and supplied bracketed words preserved. Other books in source omitted."
+}

@@ -1,0 +1,5 @@
+Recommended exports:
+Favicon: symbol only, simplified at 16/32px.
+Social avatar: symbol on Gazely Black.
+Open Graph: 1200x630, Gazely wordmark + descriptor, generous negative space.
+Website hero: master brand first; integration names are secondary.

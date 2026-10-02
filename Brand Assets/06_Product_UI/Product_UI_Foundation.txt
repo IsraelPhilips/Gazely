@@ -1,0 +1,8 @@
+PRODUCT UI FOUNDATION
+Default surface: dark/near-black.
+Signal Lime: active listening, recognized/ready, confirmation.
+Never communicate state by colour alone: pair with icon/text.
+Recommended radii: 10px controls, 14px cards, 18-22px large surfaces.
+Recommended spacing base: 4px; common increments 8/12/16/24/32.
+Motion: calm focus, 160-240ms micro transitions; 280-420ms contextual reveal. Respect reduced-motion.
+Human operator has priority. UI language should communicate Suggest / Preview / Live clearly.

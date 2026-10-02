@@ -1,0 +1,6 @@
+MOTION PRINCIPLE: FOCUS, THEN REVEAL.
+Listening: subtle steady presence, no aggressive pulsing.
+Recognition: forms draw fractionally closer / focus tightens.
+Ready: Signal Lime appears once with a restrained 160-240ms transition.
+Content reveal: fade/translate 6-10px, 220-320ms.
+Avoid bouncing, spinning, constant glowing, AI sparkle effects and attention-seeking loops.

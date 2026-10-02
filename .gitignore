@@ -1,0 +1,67 @@
+# Generated local inference dependencies and builds
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/models/
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/whisper/
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/*.exe
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/*.log
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/speech-test.wav
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/speech-smoke-*.tsv
+# Raw evidence and generated runs stay local; source tests and written reports are tracked.
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/evidence/
+benchmarks/runs/
+benchmarks/2026-09-30-sermon/*
+!benchmarks/2026-09-30-sermon/RESULTS.md
+benchmarks/tools/
+benchmarks/**/decoded.wav
+benchmarks/runs/**/chunks/
+benchmarks/__pycache__/
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/SemanticSearch/bin/
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/SemanticSearch/obj/
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/SemanticSearch/.packages/
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/SemanticSearch/.dotnet/
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/search-runtime/
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/gazely-preferences.txt
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/gazely-preferences.txt.tmp
+
+# Machine-specific adapter configuration (defaults are generated at first launch)
+EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/version-map.txt
+integrations.txt
+
+# Downloaded archives, recordings, compiled artifacts and caches
+*.zip
+*.wav
+*.mp3
+*.mp4
+*.exe
+*.dll
+*.pdb
+*.onnx
+*.bin
+*.log
+*.log.*
+*.partial
+*.tmp
+*.bak
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+bin/
+obj/
+.vs/
+*.user
+*.suo
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Local tooling and credentials
+.codex/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+credentials.json
+secrets.json

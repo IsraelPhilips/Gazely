@@ -1,0 +1,19 @@
+Gazely offline scripture search evaluation
+
+BGE-small-en-v1.5: BAAI / FlagEmbedding, MIT license.
+Original model: https://huggingface.co/BAAI/bge-small-en-v1.5
+Quantized ONNX export: https://huggingface.co/Xenova/bge-small-en-v1.5
+Upstream MIT text: https://github.com/FlagOpen/FlagEmbedding/blob/master/LICENSE
+See BGE-LICENSE.txt. Export revision and weight hashes are in manifest.json.
+
+MS MARCO MiniLM L6 v2 cross encoder: sentence-transformers, Apache 2.0.
+https://huggingface.co/cross-encoder/ms-marco-MiniLM-L6-v2
+See MiniLM-Apache-2.0.txt; model revision and weight hashes are in manifest.json.
+
+ONNX Runtime 1.20.1: Microsoft, MIT; its license and third-party notices are
+included in search-runtime/ONNX-LICENSE.txt and ONNX-ThirdPartyNotices.txt.
+The worker includes the .NET runtime; runtime distribution notices are retained.
+
+Bible corpus provenance and public-domain source information: corpus/NOTICE.txt.
+WEB text is used only for retrieval; Gazely returns canonical references and KJV
+previews. Search scores are heuristic rankings, not calibrated probabilities.

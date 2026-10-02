@@ -1,0 +1,6 @@
+Bible chapter/verse metadata source: https://github.com/thiagobodruk/bible
+Dataset: https://raw.githubusercontent.com/thiagobodruk/bible/master/json/en_kjv.json
+Retrieved 2026-09-27; SHA256: FC99486E7D3B86E4AD1F0F424B36AB41B4EC4DB858A776BD13AEE1B7910F136B
+Only numeric chapter and verse counts were derived. No Bible text is distributed.
+Verified totals: 66 books, 1189 chapters, 31102 verses.
+Numbering follows the Protestant KJV canon; translation-specific omissions and alternate numbering are not modeled.

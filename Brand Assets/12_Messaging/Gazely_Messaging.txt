@@ -1,0 +1,23 @@
+GAZELY
+Descriptor: Intelligence for live presentation.
+
+Brand idea:
+Gazely pays attention to what is happening live, understands the context, and helps bring the right content into view.
+
+Brand philosophy:
+Attention -> Understanding -> Presentation.
+
+Short explanation of the name:
+Gazely is coined around “gaze”: attention, awareness and what comes into view. It represents software that pays attention to a live moment and helps surface the right content at the right time.
+
+Primary one-liner:
+AI-powered intelligence that listens to live presentation context and prepares the right content for the screen.
+
+Expressive lines:
+Gazely pays attention. So you can stay present.
+It listens. It understands. It brings the right thing into view.
+
+Naming:
+Master brand: Gazely
+Product descriptor when needed: Gazely Presenter
+Integrations: Gazely for EasyWorship / Gazely for ProPresenter / Gazely for FreeShow

@@ -1,0 +1,9 @@
+GAZELY COLOUR SYSTEM
+Gazely Black  #111310  RGB 17 19 16
+Porcelain     #F3F1EA  RGB 243 241 234
+Signal Lime   #B8F34A  RGB 184 243 74
+Stone         #6B6F68  RGB 107 111 104
+White         #FFFFFF  RGB 255 255 255
+
+Signal Lime is semantic: recognition, ready state, active intelligence and positive confirmation.
+Do not use it as a large decorative background by default.
