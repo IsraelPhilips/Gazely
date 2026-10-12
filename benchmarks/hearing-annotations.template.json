@@ -1,0 +1,12 @@
+{
+  "provenance": "Call identities supplied by the user; interval estimates are NOT independently audio-verified. Replace with checked sample-aligned annotations before scoring acceptance gates. Coordinates refer to hearing-phase/calls.wav.",
+  "events": [
+    {"start_ms": 3500, "end_ms": 10000, "reference": "Genesis 49:3-4", "kind": "explicit", "verified": false},
+    {"start_ms": 19000, "end_ms": 24000, "reference": "Malachi 4:2", "kind": "explicit", "verified": false},
+    {"start_ms": 32000, "end_ms": 37000, "reference": "Micah 4:2", "kind": "correction", "verified": false},
+    {"start_ms": 56000, "end_ms": 65000, "reference": "Leviticus 6:13", "kind": "explicit", "verified": false},
+    {"start_ms": 74000, "end_ms": 83000, "reference": "Leviticus 6:11", "kind": "navigation", "verified": false},
+    {"start_ms": 87000, "end_ms": 92000, "reference": "Leviticus 6:12", "kind": "navigation", "verified": false}
+  ],
+  "negative_spans": []
+}

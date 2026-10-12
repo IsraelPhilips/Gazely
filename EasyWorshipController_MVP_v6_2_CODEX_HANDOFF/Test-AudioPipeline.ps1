@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 $source = Get-Content (Join-Path $PSScriptRoot 'EasyWorshipController.cs') -Raw -Encoding UTF8
 $start = $source.IndexOf('    internal sealed class SpeechChunk')
 $end = $source.IndexOf('    internal sealed class WhisperServerEngine')
@@ -61,6 +61,23 @@ public static class AudioPipelineChecks {
         for(int i=0;i<60;i++) normal += "word" + i + " ";
         Check(!SpeechVocabulary.IsRunawayRepetition(normal), "Long distinct speech must survive unchanged.");
         Check(!SpeechVocabulary.IsRunawayRepetition(null), "Absent speech is not a repetition loop.");
+        var recent=new RecentSpeechAudio();
+        for(int i=0;i<750;i++)recent.Append(Frame(i));
+        var span=recent.Snapshot(16);
+        Check(span.Pcm.Length==16*32000 && span.AudioStartSample==14*16000 && span.AudioEndSample==30*16000,"Rolling audio must retain exact bounded sample span");
+        var refine=new ReferenceRefinement();refine.UpdateIntent("Leviticus",1);
+        Check(refine.Request(recent,0),"Incomplete intent can queue recovery");
+        Check(refine.Take(0)==null,"Unknown decoder cost must not admit speculative work");
+        refine.Observe(16000,500);
+        var job=refine.Take(0);Check(job!=null && job.IsRefinement && refine.IsCurrent(job),"Admissible recovery retains intent identity");
+        Check(!refine.Request(recent,2000),"Recovery must be spaced by three seconds");
+        Check(refine.Request(recent,3000) && refine.Take(3000)!=null,"Second attempt allowed after cooldown");
+        Check(!refine.Request(recent,7000),"Maximum two attempts per intent");
+        refine.UpdateIntent("John 3:16",1);Check(!refine.IsCurrent(job),"New reference cancels stale result");
+        refine.Request(recent,8000);refine.Observe(1000,1000);Check(refine.Take(8000)==null,"Overload suspends recovery");
+        Check(refine.Take(13000)==null,"Expired recovery cannot run late");
+        refine.Reset();Check(!refine.IsCurrent(job),"Release/restart invalidates old recovery");
+        recent.Reset();Check(recent.EndSample==0 && recent.Snapshot(16).Pcm.Length==0,"Restart clears retained audio");
         return "PASS: " + count + " audio pipeline checks. No microphone or EasyWorship access.";
     }
 }

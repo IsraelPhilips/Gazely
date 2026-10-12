@@ -1,0 +1,41 @@
+{
+  "runtime": "moonshine-voice==0.1.5",
+  "architecture": "SMALL_STREAMING",
+  "source": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_08_21",
+  "license": "MIT",
+  "speech_component_bytes": 142300974,
+  "components": {
+    "adapter.ort": {
+      "bytes": 2870368,
+      "sha256": "c665f742364febad597cc9ac1e0b341ffbee0e24a1466e2f3bde95e6e4771762"
+    },
+    "cross_kv.ort": {
+      "bytes": 5356536,
+      "sha256": "e2d3417144e9514055ebfefe8dcc4c0a55a55adcb8530435844c75c53e352bf6"
+    },
+    "decoder_kv.ort": {
+      "bytes": 81878600,
+      "sha256": "1a05465b1dd955858dfcbee039c0020fb5dd982b0f5094c34e61735d518d771b"
+    },
+    "encoder.ort": {
+      "bytes": 44148576,
+      "sha256": "2d4d973e91e8aca08c51e7e7efa28a46ab265b63d809d5294d18b86bcd85b993"
+    },
+    "frontend.model.ort": {
+      "bytes": 26944,
+      "sha256": "09b1210ae30dc5f0f3e45f0ebab914c254741323114f53fbbe5ae62cca35058f"
+    },
+    "frontend.weights.ort": {
+      "bytes": 7769464,
+      "sha256": "7ef97521bd4bad3928f5bb6808586f4fcc6e92bd5990394112eed7d4052ec338"
+    },
+    "streaming_config.json": {
+      "bytes": 512,
+      "sha256": "26f02b6afb22d60871a5efd85c3d38e569cc0ddb6c5eb6e93d3260152ae8a47a"
+    },
+    "tokenizer.bin": {
+      "bytes": 249974,
+      "sha256": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d"
+    }
+  }
+}

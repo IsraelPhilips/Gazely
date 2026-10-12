@@ -4,7 +4,7 @@ $output=[IO.Path]::GetFullPath($OutputDirectory)
 if(Test-Path -LiteralPath $output){throw 'Choose a new output directory to preserve screenshots.'}
 New-Item -ItemType Directory -Path $output | Out-Null
 $source=Get-Content (Join-Path $PSScriptRoot 'EasyWorshipController.cs') -Raw -Encoding UTF8
-$source='using System.Speech.Synthesis;'+$source
+$source='using System.Speech.Synthesis;using System.Linq;'+$source
 $source=$source.Replace('private static void Main()','private static void LaunchApplication()')
 $adapters=Get-Content (Join-Path $PSScriptRoot 'PresentationAdapters.cs') -Raw -Encoding UTF8
 $source += [Environment]::NewLine+($adapters -replace '(?m)^using [^;]+;\r?\n','')
@@ -32,6 +32,7 @@ namespace EasyWorshipControllerMvp {
   }
   [STAThread] public static int Main(string[] args) { try{return Run(args);}catch(Exception ex){Console.Error.WriteLine(ex);return 1;} }
   private static int Run(string[] args) {
+   Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
    Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
    WorkspacePreferences.PathOverride=Path.Combine(args[0],"preferences-test.txt");
    using(MainForm form=new MainForm()) {
@@ -89,7 +90,7 @@ namespace EasyWorshipControllerMvp {
     // Exercise the actual UI final-result callback with the reported split reference.
     System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
     Control[] navigation=form.Controls.Find("GazelyNavigation",true);
-    if(navigation.Length!=1 || navigation[0].Controls.Count!=8)throw new Exception("Navigation controls missing");
+    if(navigation.Length!=1 || navigation[0].Controls.Count!=9 || navigation[0].Controls.Find("OpenMiniOverlay",true).Length!=1)throw new Exception("Navigation controls missing");
     foreach(Control button in navigation[0].Controls)
     {
      if(button.Right>navigation[0].ClientSize.Width || button.Bottom>navigation[0].ClientSize.Height)throw new Exception("Navigation clipped: "+button.Text);
@@ -113,6 +114,9 @@ namespace EasyWorshipControllerMvp {
     ComboBox model=(ComboBox)typeof(MainForm).GetField("whisperModelCombo",flags).GetValue(form);
     ComboBox recognizer=(ComboBox)typeof(MainForm).GetField("recognizerCombo",flags).GetValue(form);
     engine.SelectedIndex=1;Application.DoEvents();if(!recognizer.Visible || model.Visible)throw new Exception("Windows recognizer selector broke");
+    if(engine.Items.Count!=5 || !engine.Items[4].ToString().StartsWith("Nemotron"))throw new Exception("Nemotron selector missing");
+    engine.SelectedIndex=4;Application.DoEvents();
+    if(model.Visible || recognizer.Visible || ((CheckBox)typeof(MainForm).GetField("autoLiveCheck",flags).GetValue(form)).Enabled)throw new Exception("Experimental streaming settings exposed automatic presentation or Whisper controls");
     engine.SelectedIndex=0;Application.DoEvents();if(!model.Visible || recognizer.Visible)throw new Exception("Local model selector broke");
     TextBox manualInput=(TextBox)typeof(MainForm).GetField("scriptureTextBox",flags).GetValue(form);
     if(manualInput.Width>350 || engine.Width>270)throw new Exception("Compact input sizing regressed");
@@ -267,6 +271,10 @@ namespace EasyWorshipControllerMvp {
     if(fake.Calls!=1 || fake.Last.Scripture.ReferenceText!="Psalms 119:25" || fake.Last.Version!="KJV")throw new Exception("Direct candidate Present failed or used wrong reference/version");
     typeof(MainForm).GetField("candidatePage",flags).SetValue(form,1);typeof(MainForm).GetMethod("RenderCandidates",flags).Invoke(form,null);
     if(recent.Controls.Count==0)throw new Exception("Older candidates inaccessible");
+    ((Button)form.Controls.Find("LatestCandidates",true)[0]).PerformClick();Application.DoEvents();
+    if((int)typeof(MainForm).GetField("candidatePage",flags).GetValue(form)!=0)throw new Exception("Latest did not return to page one");
+    Label pagingLabel=(Label)typeof(MainForm).GetField("candidateCount",flags).GetValue(form);
+    if(!pagingLabel.Text.Contains("Newest first"))throw new Exception("Newest page ordering not explained");
     TextBox filter=(TextBox)typeof(MainForm).GetField("candidateFilter",flags).GetValue(form);filter.Text="Candidate burst fixture";Application.DoEvents();
     Label countLabel=(Label)typeof(MainForm).GetField("candidateCount",flags).GetValue(form);
     if(!countLabel.Text.StartsWith("25 candidates"))throw new Exception("Burst candidates were lost");
@@ -294,12 +302,12 @@ namespace EasyWorshipControllerMvp {
     if(!reference.Text.StartsWith("Isaiah 51"))throw new Exception("Uncertain Isaiah verse lost chapter draft: "+reference.Text);
     final.Invoke(form,new object[]{"I can to mean ye that follow of power righteousness, ye that seek the Lord.",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
     final.Invoke(form,new object[]{"Look onto the rock once you are healed. And to the whole of the pit, once you are deep.",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
-    quoteWait.Restart();while(reference.Text!="Isaiah 51:1" && quoteWait.ElapsedMilliseconds<15000){Application.DoEvents();System.Threading.Thread.Sleep(15);}
-    if(reference.Text!="Isaiah 51:1")throw new Exception("Reported Isaiah reading did not reach Selected passage: "+reference.Text);
+    quoteWait.Restart();while(!history.Items.Cast<ListViewItem>().Any(r=>r.SubItems[1].Text=="Isaiah 51:1") && quoteWait.ElapsedMilliseconds<15000){Application.DoEvents();System.Threading.Thread.Sleep(15);}
+    if(!history.Items.Cast<ListViewItem>().Any(r=>r.SubItems[1].Text=="Isaiah 51:1") || reference.Text!="Isaiah 51:\u2026")throw new Exception("Isaiah quote must reach history without completing active chapter draft: "+reference.Text+" Candidates: "+string.Join(";",history.Items.Cast<ListViewItem>().Select(r=>r.SubItems[1].Text).ToArray()));
     final.Invoke(form,new object[]{"is a look onto your father Abraham and unto Sarah that hold you for I caught",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
     final.Invoke(form,new object[]{"For I called him he Loon and blessed him and increased him.",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
-    quoteWait.Restart();while(reference.Text!="Isaiah 51:2" && quoteWait.ElapsedMilliseconds<15000){Application.DoEvents();System.Threading.Thread.Sleep(15);}
-    if(reference.Text!="Isaiah 51:2")throw new Exception("Following Isaiah quotation did not update Selected passage: "+reference.Text);
+    quoteWait.Restart();while(!history.Items.Cast<ListViewItem>().Any(r=>r.SubItems[1].Text=="Isaiah 51:2") && quoteWait.ElapsedMilliseconds<15000){Application.DoEvents();System.Threading.Thread.Sleep(15);}
+    if(!history.Items.Cast<ListViewItem>().Any(r=>r.SubItems[1].Text=="Isaiah 51:2") || reference.Text!="Isaiah 51:\u2026")throw new Exception("Following Isaiah quote must remain separate from active draft");
     CheckBox automaticPrepare=(CheckBox)typeof(MainForm).GetField("autoPreviewCheck",flags).GetValue(form);automaticPrepare.Checked=true;
     int calls=fake.Calls;
     foreach(string command in new string[]{"Genesis chapter 49 verses 3 and verse 4","Next verse"}){
@@ -309,12 +317,217 @@ namespace EasyWorshipControllerMvp {
     }
     if(fake.Last.Scripture.ReferenceText!="Genesis 49:4")throw new Exception("Automatic next verse did not prepare verse 4");
     automaticPrepare.Checked=false;
-    Console.WriteLine("PASS: reported Isaiah readings update Selected passage; range-first and next-verse automation use fake adapter.");
+    // Version-only changes and navigation must reach the shared output adapter.
+    var testVersionMap=(System.Collections.Generic.Dictionary<string,int>)typeof(MainForm).GetField("versionMap",flags).GetValue(form);
+    testVersionMap["NIV"]=0;testVersionMap["MSG"]=11;
+    foreach(string[] step in new string[][]{new[]{"John 3:16 in NIV","John 3:16","NIV"},new[]{"verse seventeen","John 3:17","NIV"},new[]{"use the Message","John 3:17","MSG"},new[]{"next verse","John 3:18","MSG"},new[]{"Romans 8:1","Romans 8:1","KJV"}}){
+      final.Invoke(form,new object[]{step[0],1.0,"Nemotron",0.0,-1,null});Application.DoEvents();
+      var versionDetection=(ScriptureDetection)typeof(MainForm).GetField("lastDetection",flags).GetValue(form);
+      if(versionDetection.ReferenceText!=step[1] || (versionDetection.TranslationExplicit?versionDetection.Translation:"KJV")!=step[2])throw new Exception("Active translation mismatch: "+step[0]);
+      if(step[2]!="KJV" && !((Label)typeof(MainForm).GetField("verseExcerpt",flags).GetValue(form)).Text.StartsWith("KJV preview (output: "+step[2]+")"))throw new Exception("Preview mislabels output translation");
+      int beforeVersion=fake.Calls;
+      typeof(MainForm).GetMethod("RunDetected",flags).Invoke(form,new object[]{true});quoteWait.Restart();
+      while((fake.Calls==beforeVersion || (bool)typeof(MainForm).GetField("presentationRunning",flags).GetValue(form)) && quoteWait.ElapsedMilliseconds<4000){Application.DoEvents();System.Threading.Thread.Sleep(10);}
+      if(fake.Calls!=beforeVersion+1 || fake.Last.Version!=step[2] || fake.Last.Scripture.ReferenceText!=step[1])throw new Exception("Adapter received wrong translation/reference");
+    }
+    Console.WriteLine("PASS: speech translation switches, retained verse versions, new-reference KJV reset and truthful preview reach the shared fake adapter.");
+    calls=fake.Calls;
+    final.Invoke(form,new object[]{"John chapter three in NIV",1.0,"Nemotron",0.0,-1,null});Application.DoEvents();
+    final.Invoke(form,new object[]{"verse sixteen",1.0,"Nemotron",0.0,-1,null});Application.DoEvents();
+    var splitVersion=(ScriptureDetection)typeof(MainForm).GetField("lastDetection",flags).GetValue(form);
+    if(splitVersion.ReferenceText!="John 3:16" || splitVersion.Translation!="NIV" || !splitVersion.TranslationExplicit)throw new Exception("Draft reseeding lost requested translation");
+    typeof(MainForm).GetMethod("ClearCandidatePanel",flags).Invoke(form,null);
+    final.Invoke(form,new object[]{"Now if you go to Leviticus, let's jump a bit.",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    final.Invoke(form,new object[]{"Let's see what the vertical says. Sixth verse 13.",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:13")throw new Exception("Split Leviticus ordinal reference did not select immediately");
+    // Even a current-revision quote must not displace a spoken instruction.
+    typeof(MainForm).GetField("lastSpeechDetectionUtc",flags).SetValue(form,DateTime.UtcNow.AddSeconds(-20));
+    revision=(long)typeof(MainForm).GetField("interpretationRevision",flags).GetValue(form);
+    int activeEpoch=(int)typeof(MainForm).GetField("candidateEpoch",flags).GetValue(form);
+    var competing=new System.Collections.Generic.List<ScriptureDetection>{new ScriptureDetection{Book="Deuteronomy",Chapter=4,Verse=24,RequiresReview=true,EvidenceKind="quotation",SourceText="competing fire quote"}};
+    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{competing,session,revision,activeEpoch});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:13")throw new Exception("Quote stole selected spoken reference after ten seconds");
+    final.Invoke(form,new object[]{"He says go to verse 11 let's start from verse 11",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:11")throw new Exception("Contextual verse directive did not select verse 11");
+    revision=(long)typeof(MainForm).GetField("interpretationRevision",flags).GetValue(form);
+    competing[0]=new ScriptureDetection{Book="Leviticus",Chapter=6,Verse=13,RequiresReview=true,EvidenceKind="quotation",SourceText="old verse wording"};
+    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{competing,session,revision,activeEpoch});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:11")throw new Exception("Older verse quote reversed newer contextual instruction");
+    final.Invoke(form,new object[]{"without the camp onto a clean place. Okay, verse 12.",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:12")throw new Exception("Verse 12 directive embedded after quotation was lost");
+    Console.WriteLine("PASS: Leviticus split reference and verse 11/12 commands; competing quotes cannot steal or reverse spoken selection.");
+    typeof(MainForm).GetMethod("ClearCandidatePanel",flags).Invoke(form,null);
+    final.Invoke(form,new object[]{"Malachi chapter four verse two",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    final.Invoke(form,new object[]{"No Micah",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Micah 4:2" || (string)typeof(MainForm).GetField("quoteScopeBook",flags).GetValue(form)!="Micah")throw new Exception("Book correction failed to update selected reference and quote scope");
+    final.Invoke(form,new object[]{"It is a come to pass that the mountain of the house of the Lord shall be established rather",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    final.Invoke(form,new object[]{"in the top of the mountains and it shall be exalted above eels.",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    quoteWait.Restart();while(!history.Items.Cast<ListViewItem>().Any(r=>r.SubItems[1].Text=="Micah 4:1") && quoteWait.ElapsedMilliseconds<15000){Application.DoEvents();System.Threading.Thread.Sleep(15);}
+    if(!history.Items.Cast<ListViewItem>().Any(r=>r.SubItems[1].Text=="Micah 4:1") || reference.Text!="Micah 4:2")throw new Exception("Micah quote must reach detections without replacing corrected active verse: "+reference.Text);
+    if(fake.Calls!=calls)throw new Exception("Correction/quotation sent an unexpected presentation command");
+    Console.WriteLine("PASS: corrected book updates scope; actual Micah replay quotation reaches detections without replacing active scripture.");
+    Button release=(Button)form.Controls.Find("ReleaseScripture",true)[0];release.PerformClick();Application.DoEvents();
+    var active=(ActiveReferenceState)typeof(MainForm).GetField("activeReference",flags).GetValue(form);
+    var partial=typeof(MainForm).GetMethod("OnPartialTranscript",flags);
+    long utterance=(long)typeof(MainForm).GetField("lastFinalUtteranceId",flags).GetValue(form)+100;
+    var previewChunk=new SpeechChunk{Session=session,UtteranceId=utterance};
+    partial.Invoke(form,new object[]{"I like what is said in the book of Leviticus",previewChunk,0.0});Application.DoEvents();
+    if(reference.Text!="Leviticus ?" || active.Stage!="Book identified")throw new Exception("Partial book intent was not visible immediately");
+    partial.Invoke(form,new object[]{"I like what is said",previewChunk,0.0});Application.DoEvents();
+    if(!active.IsActive || reference.Text!="Leviticus ?" || active.Current.EvidenceKind!="retained")throw new Exception("Withdrawn book hypothesis was not retained for review");
+    final.Invoke(form,new object[]{"I like what is said in the book of Leviticus",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Leviticus" || active.Stage!="Book identified")throw new Exception("Confirmed book not retained");
+    typeof(MainForm).GetField("lastSpeechDetectionUtc",flags).SetValue(form,DateTime.UtcNow.AddHours(-1));
+    final.Invoke(form,new object[]{"This is important for the life of the church",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Leviticus")throw new Exception("Ordinary explanation released book intent");
+    revision=(long)typeof(MainForm).GetField("interpretationRevision",flags).GetValue(form);
+    activeEpoch=(int)typeof(MainForm).GetField("candidateEpoch",flags).GetValue(form);
+    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{competing,session,revision,activeEpoch});Application.DoEvents();
+    if(reference.Text!="Leviticus")throw new Exception("Quote displaced book-only SP after elapsed time");
+    final.Invoke(form,new object[]{"chapter five",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Leviticus 5:\u2026" || active.Stage!="Chapter identified")throw new Exception("Chapter did not complete active book");
+    final.Invoke(form,new object[]{"verse seven",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Leviticus 5:7" || active.Stage!="Reference resolved")throw new Exception("Verse did not complete active chapter");
+    final.Invoke(form,new object[]{"John chapter three verse sixteen",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="John 3:16")throw new Exception("New explicit reference did not replace active context");
+    final.Invoke(form,new object[]{"Elsewhere Scripture says thy word is a lamp unto my feet and a light unto my path",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    quoteWait.Restart();while(reference.Text!="Psalms 119:105" && quoteWait.ElapsedMilliseconds<15000){Application.DoEvents();System.Threading.Thread.Sleep(15);}
+    if(reference.Text!="Psalms 119:105")throw new Exception("Clear transition plus strong literal quotation did not switch active scripture");
+    release.PerformClick();Application.DoEvents();if(active.IsActive)throw new Exception("Release did not clear active context");
+    final.Invoke(form,new object[]{"If you go to Leviticus, let us jump a bit",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    previewChunk.UtteranceId+=100;
+    partial.Invoke(form,new object[]{"Leviticus chapter six verse thirteen",previewChunk,0.0});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:13 ?")throw new Exception("Complete partial was not shown");
+    partial.Invoke(form,new object[]{"Leviticus",previewChunk,0.0});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:13 ?")throw new Exception("Book-only partial erased verse");
+    final.Invoke(form,new object[]{"Let's jump a bit, let's see what the medical says.",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:13 ?" || !active.Current.RequiresReview || active.Current.EvidenceKind!="retained")throw new Exception("Incomplete final erased the retained verse or confirmed it without evidence: "+reference.Text);
+    revision=(long)typeof(MainForm).GetField("interpretationRevision",flags).GetValue(form);
+    activeEpoch=(int)typeof(MainForm).GetField("candidateEpoch",flags).GetValue(form);
+    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{competing,session,revision,activeEpoch});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:13 ?")throw new Exception("Quote displaced retained chapter/verse");
+    final.Invoke(form,new object[]{"Go to VES 11. Let's start from VES 11.",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:11" || !active.Current.RequiresReview)throw new Exception("VES instruction did not use retained chapter safely: "+reference.Text);
+    final.Invoke(form,new object[]{"Leviticus",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:11")throw new Exception("Repeated book erased confirmed verse");
+    final.Invoke(form,new object[]{"John chapter three verse sixteen",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="John 3:16" || active.Retained!=null)throw new Exception("Explicit new scripture failed to replace retained context");
+    if(fake.Calls!=calls)throw new Exception("Unconfirmed recovery triggered automatic presentation");
+    release.PerformClick();Application.DoEvents();
+    var noContext=new ScriptureDetector();
+    if(noContext.Feed("Go to VES 11")!=null)throw new Exception("VES recovery invented missing book/chapter");
+    active.Confirm(new ScriptureDetection{Book="Leviticus",EvidenceKind="draft",RequiresReview=true});
+    typeof(MainForm).GetMethod("RenderActiveReference",flags).Invoke(form,new object[]{false});
+    var remember=typeof(MainForm).GetMethod("RememberQuoteAlternative",flags);
+    remember.Invoke(form,new object[]{new ScriptureDetection{Book="Leviticus",Chapter=6,Verse=13,MatchScore=0.98,EvidenceKind="quotation",RequiresReview=true,MatchedText="The fire shall ever be burning upon the altar; it shall never go out."}});
+    remember.Invoke(form,new object[]{new ScriptureDetection{Book="Matthew",Chapter=6,Verse=33,MatchScore=0.97,EvidenceKind="quotation",RequiresReview=true,MatchedText="Seek ye first the kingdom of God"}});
+    typeof(MainForm).GetMethod("RefreshPassageAlternatives",flags).Invoke(form,null);Application.DoEvents();
+    var alternatives=form.Controls.Find("PassageAlternatives",true)[0];
+    if(reference.Text!="Leviticus" || !alternatives.Controls.Cast<Control>().Any(c=>c.Text.Contains("Leviticus 6:13")) || !alternatives.Controls.Cast<Control>().Any(c=>c.Text.Contains("Matthew 6:33")))throw new Exception("Strong quote must coexist beneath spoken book: "+reference.Text);
+    ((Button)alternatives.Controls.Cast<Control>().First(c=>c.Text.Contains("Leviticus 6:13"))).PerformClick();Application.DoEvents();
+    if(reference.Text!="Leviticus 6:13" || active.Current.Verse!=0 || alternatives.Controls.Find("RestoreSpokenAnchor",true).Length!=1)throw new Exception("Quote promotion lost spoken anchor");
+    final.Invoke(form,new object[]{"Leviticus chapter six verse eleven",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:13" || active.Current.ReferenceText!="Leviticus 6:11")throw new Exception("Spoken anchor did not advance independently of operator quote selection");
+    using(Bitmap bitmap=new Bitmap(form.Width,form.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,form.Size));bitmap.Save(Path.Combine(args[0],"passage-alternatives.png"),System.Drawing.Imaging.ImageFormat.Png);}
+    Size compactSize=form.Size;form.Size=new Size(1920,1080);Application.DoEvents();
+    using(Bitmap bitmap=new Bitmap(form.Width,form.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,form.Size));bitmap.Save(Path.Combine(args[0],"passage-alternatives-wide.png"),System.Drawing.Imaging.ImageFormat.Png);}
+    form.Size=compactSize;Application.DoEvents();
+    ((Button)alternatives.Controls.Find("RestoreSpokenAnchor",true)[0]).PerformClick();Application.DoEvents();
+    if(reference.Text!="Leviticus 6:11" || !alternatives.Controls.Cast<Control>().Any(c=>c.Text.Contains("Leviticus 6:13")) || !alternatives.Controls.Cast<Control>().Any(c=>c.Text.Contains("Matthew 6:33")) || fake.Calls!=calls)throw new Exception("Returning to spoken anchor lost alternate quote or presented unexpectedly");
+    release.PerformClick();Application.DoEvents();
+    active.Confirm(new ScriptureDetection{Book="Leviticus",EvidenceKind="draft",RequiresReview=true});
+    Console.WriteLine("PASS: strong quotes coexist below SP; selection swaps with spoken anchor, further speech updates anchor, other quotes survive.");
+    var recovery=(ReferenceRefinement)typeof(MainForm).GetField("referenceRefinement",flags).GetValue(form);
+    var ring=new RecentSpeechAudio();ring.Append(new byte[32000]);
+    recovery.UpdateIntent(active.Current.ReferenceText,session);recovery.Observe(1000,100);
+    recovery.Request(ring,0);var recoveryJob=recovery.Take(0);
+    var recovered=typeof(MainForm).GetMethod("OnRefinedTranscript",flags);
+    recovered.Invoke(form,new object[]{"Leviticus chapter six verse thirteen",recoveryJob,100.0});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:13" || !active.Current.RequiresReview || active.Current.EvidenceKind!="audio-refinement" || fake.Calls!=calls)throw new Exception("Audio recovery must populate SP for review without presenting");
+    release.PerformClick();Application.DoEvents();
+    recovered.Invoke(form,new object[]{"Leviticus chapter six verse thirteen",recoveryJob,100.0});Application.DoEvents();
+    if(active.IsActive)throw new Exception("Stale recovery restored a released scripture");
+    active.Confirm(new ScriptureDetection{Book="Malachi",Chapter=4,Verse=2,EvidenceKind="explicit",Confidence=0.97});
+    recovery.UpdateIntent(active.Current.ReferenceText,session);recovery.Observe(1000,100);recovery.Request(ring,0,-1,true);recoveryJob=recovery.Take(0);
+    recovered.Invoke(form,new object[]{"No Micah",recoveryJob,100.0});Application.DoEvents();
+    if(reference.Text!="Micah 4:2" || !active.Current.RequiresReview || fake.Calls!=calls)throw new Exception("Audio book correction must inherit numbers for review without presenting");
+    release.PerformClick();Application.DoEvents();
+    Console.WriteLine("PASS: audio refinement updates SP for review only; release rejects stale completion.");
+    Console.WriteLine("PASS: complete partial survives incomplete final, quotes stay separate, VES uses active chapter with review, explicit switch and release work.");
+    Console.WriteLine("PASS: provisional book, revision, persistent book/chapter/verse states, explicit switch, quote transition and manual release.");
+    Console.WriteLine("PASS: Isaiah readings remain in Detections; range-first and next-verse automation use fake adapter.");
     Console.WriteLine("PASS: rendered seven application pages without microphone or real presentation actions.");
+    // The overlay uses the same live selection and fake presentation adapter.
+    var miniType=typeof(MainForm).GetNestedType("MiniOverlay",System.Reflection.BindingFlags.NonPublic);
+    var mini=(Form)Activator.CreateInstance(miniType,new object[]{form});
+    typeof(MainForm).GetField("miniOverlay",flags).SetValue(form,mini);
+    miniType.GetField("monitorName",flags).SetValue(mini,Screen.FromControl(form).DeviceName);
+    miniType.GetMethod("Open").Invoke(mini,null);Application.DoEvents();
+    if(!mini.TopMost || mini.FormBorderStyle!=FormBorderStyle.None || mini.ShowInTaskbar)throw new Exception("Overlay window styles changed");
+    var styles=(CreateParams)miniType.GetProperty("CreateParams",flags).GetValue(mini,null);
+    if((styles.ExStyle & 0x08000080)!=0x08000080)throw new Exception("Overlay must be non-activating and a tool window");
+    typeof(MainForm).GetMethod("ShowDetection",flags).Invoke(form,new object[]{new ScriptureDetection{Book="Genesis",Chapter=49,Verse=3,RequiresReview=true,Confidence=.92}});
+    foreach(string state in new[]{"Collapsed","Compact","Expanded"}){
+      miniType.GetMethod("SetMode",flags).Invoke(mini,new object[]{state});Application.DoEvents();
+      using(var bitmap=new Bitmap(mini.Width,mini.Height)){mini.DrawToBitmap(bitmap,new Rectangle(Point.Empty,mini.Size));bitmap.Save(Path.Combine(args[0],"overlay-"+state+".png"));}
+      if(!Screen.FromControl(form).WorkingArea.Contains(mini.Bounds))throw new Exception("Overlay escaped operator monitor");
+    }
+    // Reproduce menu close followed by item activation, then reopen repeatedly.
+    // A Closed handler must not dispose a menu still in WinForms click dispatch.
+    for(int cycle=0;cycle<3;cycle++){
+      Console.WriteLine("Overlay return cycle "+cycle+": restore workspace");
+      miniType.GetMethod("ReturnToWorkspace",flags).Invoke(mini,null);
+      form.WindowState=FormWindowState.Maximized;
+      Console.WriteLine("Overlay return cycle "+cycle+": open mini");
+      typeof(MainForm).GetMethod("OpenMiniOverlay",flags).Invoke(form,null);Application.DoEvents();
+      if(form.Visible || !mini.Visible)throw new Exception("Mini mode did not replace workspace");
+      Console.WriteLine("Overlay return cycle "+cycle+": show menu");
+      miniType.GetMethod("ShowOptions",flags).Invoke(mini,new object[]{mini});Application.DoEvents();
+      var menu=(ContextMenuStrip)miniType.GetField("optionsMenu",flags).GetValue(mini);
+      var returnItem=menu.Items[menu.Items.Count-1];
+      menu.Close(ToolStripDropDownCloseReason.ItemClicked);
+      Console.WriteLine("Overlay return cycle "+cycle+": activate return item");
+      if(menu.IsDisposed || returnItem.IsDisposed)throw new Exception("Overlay menu disposed during click dispatch");
+      returnItem.PerformClick();Application.DoEvents();
+      if(!form.Visible || mini.Visible || form.WindowState!=FormWindowState.Maximized)throw new Exception("Menu did not restore full maximized workspace");
+    }
+    typeof(MainForm).GetMethod("OpenMiniOverlay",flags).Invoke(form,null);Application.DoEvents();
+    var overlayBody=(TableLayoutPanel)miniType.GetField("body",flags).GetValue(mini);
+    var heading=overlayBody.GetControlFromPosition(0,0);
+    ((Button)heading.Controls[heading.Controls.Count-1]).PerformClick();Application.DoEvents();
+    if(!form.Visible || mini.Visible)throw new Exception("Overlay return arrow did not restore workspace");
+    miniType.GetMethod("Open").Invoke(mini,null);Application.DoEvents();
+    Console.WriteLine("PASS: repeated menu close/click and return arrow restore maximized workspace without disposed menus.");
+    int beforeMini=fake.Calls;
+    ((Button)miniType.GetField("live",flags).GetValue(mini)).PerformClick();
+    var miniWait=System.Diagnostics.Stopwatch.StartNew();while(fake.Calls==beforeMini && miniWait.ElapsedMilliseconds<3000){Application.DoEvents();System.Threading.Thread.Sleep(15);}
+    if(fake.Calls!=beforeMini+1 || fake.Last.Scripture.ReferenceText!="Genesis 49:3")throw new Exception("Overlay did not use existing Present action");
+    mini.Location=new Point(-30000,-30000);Application.DoEvents();
+    if(!Screen.FromControl(form).WorkingArea.Contains(mini.Bounds))throw new Exception("Overlay drag bounds escaped operator monitor");
+    miniType.GetMethod("Save",flags).Invoke(mini,null);typeof(MainForm).GetMethod("SaveWorkspacePreferences",flags).Invoke(form,null);
+    if(WorkspacePreferences.Load()["overlay.mode"]!="Expanded")throw new Exception("Host settings erased overlay settings");
+    typeof(MainForm).GetField("presentationRunning",flags).SetValue(form,true);miniType.GetMethod("FollowTarget",flags).Invoke(mini,null);
+    if(mini.Visible)throw new Exception("Overlay could intercept adapter automation clicks");
+    typeof(MainForm).GetField("presentationRunning",flags).SetValue(form,false);miniType.GetMethod("FollowTarget",flags).Invoke(mini,null);
+    miniType.GetField("targetProcess",flags).SetValue(mini,System.Diagnostics.Process.GetCurrentProcess().ProcessName);
+    miniType.GetField("targetTitle",flags).SetValue(mini,form.Text);miniType.GetField("corner",flags).SetValue(mini,"Top right");
+    miniType.GetField("targetHandle",flags).SetValue(mini,form.Handle);
+    form.WindowState=FormWindowState.Minimized;Application.DoEvents();miniType.GetMethod("FollowTarget",flags).Invoke(mini,null);
+    if(mini.Visible)throw new Exception("Overlay did not hide with minimized anchor");
+    form.WindowState=FormWindowState.Normal;form.Show();Application.DoEvents();miniType.GetMethod("FollowTarget",flags).Invoke(mini,null);
+    if(!mini.Visible)throw new Exception("Overlay did not return with restored anchor");
+    miniType.GetField("monitorName",flags).SetValue(mini,"DISCONNECTED-TEST");miniType.GetMethod("FollowTarget",flags).Invoke(mini,null);
+    if(mini.Visible)throw new Exception("Overlay appeared on fallback monitor after disconnect");
+    miniType.GetMethod("Shutdown").Invoke(mini,null);
+    var restored=(Form)Activator.CreateInstance(miniType,new object[]{form});
+    if((string)miniType.GetField("mode",flags).GetValue(restored)!="Expanded" || restored.Size!=mini.Size)throw new Exception("Overlay size/state not restored");
+    miniType.GetMethod("Shutdown").Invoke(restored,null);
+    Console.WriteLine("PASS: overlay states, monitor bounds/disconnect, non-activation flags, minimize/restore, persistence and shared Present action.");
     form.Close();
    }
-   WorkspacePreferences.Save(new System.Collections.Generic.Dictionary<string,string>{{"dark","True"},{"autoLive","True"},{"autoPrepare","False"},{"model","Balanced"},{"engine","Local AI (recommended)"}});
+   WorkspacePreferences.Save(new System.Collections.Generic.Dictionary<string,string>{{"dark","True"},{"autoLive","True"},{"autoPrepare","False"},{"audioRefinement","True"},{"model","Balanced"},{"engine","Local AI (recommended)"}});
    using(MainForm reopened=new MainForm()){
+    if(!((CheckBox)typeof(MainForm).GetField("refinementCheck",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance).GetValue(reopened)).Checked)throw new Exception("Audio refinement preference did not restore");
     var flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
     if(!GazelyTheme.Dark || !((CheckBox)typeof(MainForm).GetField("autoLiveCheck",flags).GetValue(reopened)).Checked || (bool)typeof(MainForm).GetField("audioListening",flags).GetValue(reopened))throw new Exception("Saved theme/automation not restored or listening started unexpectedly");
     if(((ComboBox)typeof(MainForm).GetField("whisperModelCombo",flags).GetValue(reopened)).Text!="Balanced")throw new Exception("Saved speech profile not restored");

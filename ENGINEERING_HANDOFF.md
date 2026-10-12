@@ -1,4 +1,4 @@
-﻿# Gazely engineering handoff
+# Gazely engineering handoff
 
 Current baseline: v6.3 prototype. Consolidated 30 September 2026.
 
@@ -8,6 +8,616 @@ records implementation and evidence; proposed architecture is not a claim of
 shipped functionality.
 
 ## Immediate engineering reality
+
+### Active-passage translations — 12 October 2026
+
+Staged after the Nemotron integration. ScriptureDetector now retains both the
+translation and its explicit-request flag across verse continuations, navigation,
+active-reference seeding, verified display context and preview snapshot/restore.
+New named-book full references reset to default KJV when no translation is given.
+Chapter-only drafts retain an explicitly requested version until their verse arrives.
+Standalone directives ("use the Message", "give me that in NLT", code-only "NIV")
+change a complete selected passage without inventing numbers; they remain
+review-required. Ordinary mentions, negated commands and unanchored requests abstain.
+Operator-held selections retain their existing protection from speech changes.
+
+SP now distinguishes local KJV preview text from a requested non-KJV output.
+The existing mapped-version check still blocks missing mappings. No EasyWorship
+files were changed, and no adapter interfaces or ASR settings changed.
+
+Validation: parser and quotation regressions; full `ui-translation-context-2`
+suite including actual OnFinalTranscript → SP → shared fake adapter sequence
+John 3:16 NIV → 3:17 NIV → 3:17 MSG → 3:18 MSG → Romans 8:1 KJV;
+split chapter/version → verse; overlay recovery/persistence and prior SP tests.
+No real presentation commands. First UI run needed its expected fake-command
+counter updated to include the five new intentional test presentations.
+
+Latest staged `Gazely.pending.exe` SHA256:
+`82D30869EDED13BDE76D33B1689C752420ED8399A9F2CA842C07EEB00BEA07EF`.
+Close Gazely and launch `RUN_GAZELY.bat`. Nemotron remains experimental/manual-only.
+The 30-minute endurance and real EasyWorship coexistence test remains outstanding.
+
+### Nemotron live integration — 12 October 2026
+
+`StreamingSpeechEngine` now supports **Nemotron English (experimental)** alongside
+the existing Moonshine choices. Whisper stays the default; native streaming
+cannot trigger automatic Prepare/Live. Manual actions reuse the same adapter,
+including from Mini overlay. No presentation-adapter interface changed.
+
+- One Python worker and one native NeMo-Speech v0.2.0 CPU server per listening
+  session; binary PCM over authenticated loopback WebSocket, persistent decoder
+  caches, four CPU threads, right context 6 / 560 ms, 700 ms endpointing. No
+  hosted ASR, per-packet WAVs, model reloads, vocabulary prompts or recordings.
+- C# bounds its PCM queue; the worker also bounds unacknowledged transport audio.
+  Ordered ping/pong acknowledgements advance during silence. Transcript events
+  are not a valid progress signal: silence can emit none. Logs show received and
+  acknowledged samples, queue occupancy and acknowledgement roundtrip. These
+  timings are not model-only compute time or spoken-reference display latency.
+- EOF waits for native commit confirmation. Windows job ownership removes the
+  native child if the worker dies. Empty final revisions clear pending live text.
+- Contextual ranges split across final transcript lines now select their first
+  verse. Punctuation-free navigation after discourse cues is review-required;
+  it does not gain automatic-presentation permission.
+
+Evidence (local, ignored `benchmarks/runs`):
+
+- `nemotron-bridge-websocket-4.tsv`: two fresh paced 102-second sessions, 38 final
+  and 158 partial events, no duplicate final IDs/errors, EOF flushed.
+- `nemotron/live-genesis-2`: 240-second production callback replay with lexical
+  and semantic retrieval; 67 finals, 252 partials, maximum sampled acknowledged
+  audio backlog 0.3 s, EOF flush 254 ms, all 3,840,000 samples represented, zero
+  adapter calls. WER 65/449 = **14.48%**, matching the accelerated file benchmark.
+  SP followed Genesis → Genesis 49 → 49:3 → 49:4. Matthew 6:33 appeared in Detections.
+- `test_nemotron_worker.py`: ten seconds of paced silence acknowledged completely
+  without invented words; EOF completed; abruptly killing the worker removed its
+  native child. Existing file noise/hum checks are not long live-noise certification.
+- Parser, quotation, 31 audio-pipeline checks and `ui-nemotron-final` full interface
+  suite passed, including overlay menu recovery, preferences, shared actions and
+  native-engine manual-only policy. No real microphone or presentation commands.
+
+Measurement corrections: `live-genesis-1` finished transcription but its metrics
+sampler threw after native exit; `live-genesis-2` passed. Initial RSS totals in
+`live-calls-1` and `live-genesis-2` undercount cached Process counters and omit the
+venv's child interpreter; those memory totals are invalid for acceptance. The
+sampler now refreshes counters and includes the actual interpreter PID.
+
+Corrected rerun `nemotron/live-calls-2`: 102 seconds, 19 finals / 79 partials,
+maximum sampled backlog 0.3 s, combined peak working sets **1,680,957,440 bytes
+(1.68 GB / 1.57 GiB)**, EOF flush 275 ms, all 1,632,000 audio samples represented,
+24 retained candidates, zero adapter calls. This includes the replay UI process,
+Python launcher/interpreter, native ASR and semantic search worker; working-set
+sums can double-count shared pages and are not a whole-PC memory measurement.
+
+Staged `Gazely.pending.exe` SHA256:
+`A366326E20F1A3CD842386B1F8A888A1614B23BAAA3065FA6C6B490B4A2E3657`.
+Close Gazely, launch `RUN_GAZELY.bat`, then select **Speech setup → Nemotron
+English (experimental)**. This supersedes the October 11 overlay-only pending
+build and retains its fixes. The updater preserves the prior executable.
+
+The official Q8 English model is 699,872,960 bytes (~700 MB), above the original
+500 MB speech budget and explicitly downloaded for this later evaluation. It is
+not Nemotron 3.5. Parakeet is downloaded/load-checked but not selectable yet; its
+current ONNX export lacks streaming cache inputs. No production defaults changed.
+Thirty-minute endurance, held-out speaker accuracy, physical microphone/device
+latency and total memory alongside presentation software on an 8 GB PC remain
+release gates. These short replays do not certify those targets.
+
+### Mini Overlay implemented and staged — 11 October 2026
+
+`MainForm.MiniOverlay` in `GazelyInterface.cs` is a borderless, resizable,
+topmost tool window using WS_EX_NOACTIVATE and WM_MOUSEACTIVATE/MA_NOACTIVATE.
+Open it through **Mini overlay** in the main navigation. It hides the full
+workspace, which remains alive as the sole owner of audio, interpretation,
+retrieval and presentation. The arrow and tray icon return to full settings.
+
+- Collapsed: status, meter and listening control. Compact: selected passage,
+  default/explicit version, matching score, Preview and Show Live. Expanded adds
+  audio source, inline transcript, shared automation toggles and six-per-page
+  detections (all active suggestions remain reachable). Select reviews a
+  snapshot; the adjacent play icon presents through the existing adapter.
+- Detection cards refresh only when their displayed data changes, and defer
+  rebuilding while the cursor is over the list. This avoids moving an action
+  under an operator's pointer. Page 1 is newest; refresh returns to page 1.
+- First use requires operator-monitor selection. Bounds clamp to that monitor's
+  working area. Missing monitor or an anchored target on another monitor hides
+  the overlay; there is no automatic fallback onto a potential projector.
+  Mirrored displays/external operator-screen capture cannot be excluded by this
+  window style; deployment must use a distinct extended presentation output.
+- Optional corner anchoring reads window geometry only. It follows a selected
+  EasyWorship/ProPresenter window and hides on minimize/close; tray recovery
+  remains available. ProPresenter anchoring is not a new output adapter.
+- Existing SubmitPresentation hides the overlay before adapter execution, then
+  the timer restores it after completion, preventing interception of automation
+  clicks. No EasyWorship files, configuration or database are modified.
+- Namespaced `overlay.*` preferences preserve monitor, position, per-mode size,
+  mode, anchor and enabled state. Full-workspace saves now merge existing keys.
+  Listening still does not start automatically on application launch.
+- Overlay options now live until overlay shutdown. Disposing ContextMenuStrip
+  synchronously in Closed invalidated WinForms' pending click dispatch and could
+  strand the operator in Mini mode. Returning now restores the prior maximized
+  workspace state; repeated menu and arrow return paths are regression-tested.
+- WM_WINDOWPOSCHANGING clamps drag/resize bounds before Windows applies them,
+  in addition to post-placement constraints.
+
+Validation: offline build; full interface regression suite including synthetic
+anchor minimize/restore, disconnected-monitor hiding, out-of-bounds placement,
+non-activation style bits, settings preservation/reload, and actual shared
+Present through a fake adapter. Screenshots inspected for compact/expanded
+layout. No real microphone or presentation command used. Physical multi-monitor,
+mixed-DPI and real EasyWorship placement still require operator testing.
+Evidence: `benchmarks/runs/ui-overlay-final`, `benchmarks/runs/ui-overlay-boundary`
+and `benchmarks/runs/ui-overlay-menu-fix-3` (ignored).
+Staged `Gazely.pending.exe` SHA256:
+`952399FBAD4C1B9C23E1E573EECB41B1AFDFC36DE8B2B50A78DCAAFDBD470014`.
+Activate by closing Gazely and launching `RUN_GAZELY.bat`; previous executable is
+retained by the existing updater. No speech model default was changed.
+
+Nemotron evaluation continued separately using `benchmarks/benchmark_nemotron.py`:
+240-second Genesis PCM, right context 1 (160 ms), four CPU threads, native v0.2.0.
+WER 66/449 = 14.70% against the existing user-corrected reference (same raw-word
+normalization as the historical Moonshine run). Elapsed 369.52 s including model
+startup, 0.649x audio/wall throughput, sampled worker peak RSS 997,294,080 bytes.
+This configuration fails the live-throughput gate despite improved wording.
+No retrieval contention in this run; no claim of 8 GB whole-app certification,
+reference-end latency or held-out accuracy. Evidence:
+`benchmarks/runs/nemotron/genesis-c1-t4`.
+
+The sequential right-context 6 (560 ms) run on the identical 240-second PCM took
+62.59 s including startup (3.834x throughput), with 65/449 word errors = 14.48%
+and 1,000,996,864-byte sampled worker peak RSS. Evidence:
+`benchmarks/runs/nemotron/genesis-c6-t4`. Both runs used four CPU threads and the
+same pinned model/runtime; these are single measurements under desktop load,
+not a controlled hardware certification or a calibrated latency guarantee.
+560 ms is the next integration/evaluation candidate; retain production defaults
+until retrieval contention, sustained real-time feeding, final flush and
+reference-end latency are verified. Parakeet remains download/load-checked, not
+yet comparatively scored. No transcription engine promotion was included in
+the overlay build.
+The fixed 10-second silence, white-noise and hum fixtures each produced empty
+transcripts at right-context 6, with successful EOF completion and no runtime
+error. This small synthetic suite does not establish real venue-noise accuracy.
+
+### Streaming candidate downloads authorized — 11 October 2026
+
+User authorized all needed candidate models, lifting the previous download hold.
+Scope: the discussed Nemotron English and Parakeet Unified candidates, using CPU
+quantizations; no unrelated LLM, training checkpoint or duplicate FP32 weights.
+`benchmarks/Get-StreamingCandidates.ps1` downloads pinned revisions into ignored
+`benchmarks/tools/streaming-candidates`, resumes partial downloads and verifies
+SHA256 before promotion. `benchmarks/streaming-candidates-manifest.json` records
+actual byte sizes, checksums and source URLs.
+
+- Nemotron English Q8_0: 699,872,960 bytes, official NVIDIA model.
+- Parakeet Unified INT8 encoder/decoder/tokenizer: 663,286,254 bytes, community
+  ONNX export (633 MiB, not 633 decimal MB).
+- NVIDIA NeMo-Speech.cpp v0.2.0 Windows x64 CPU runtime: 5,528,418-byte archive,
+  checksum verified and unpacked locally; no PATH/global installation changes.
+- Existing Whisper, Moonshine and retrieval assets remain available.
+
+Installation smoke checks: Nemotron loaded its explicit local GGUF and completed
+102 seconds of existing `calls.wav` with `--stream`, CPU, four threads and 160 ms
+steps. Output is `benchmarks/tools/streaming-candidates/nemotron-smoke.json`.
+Genesis 49:3-4 and the Leviticus six/verse thirteen/eleven/twelve wording appeared;
+Malachi remained imperfect. This was not a timed controlled accuracy comparison.
+One sampled process working set was about 988 MB; it is not total Gazely memory
+or a measured maximum over the whole session. Output confidence values of 1 must
+not be treated as calibrated certainty. No presentation commands were issued.
+
+Parakeet encoder and decoder loaded with CPUExecutionProvider; tokenizer has 1024
+pieces. Encoder inputs are features and lengths (no cache inputs), so the export
+must not be advertised as a ready cache-aware streaming engine. Its isolated
+Python dependencies are separate from the working Moonshine environment.
+CPU PyTorch/torchaudio imports and 128-bin mel feature computation passed;
+`pip check` passed. Installed versions are recorded in
+`benchmarks/parakeet-requirements.lock.txt` (CPU PyTorch wheels use the official
+`https://download.pytorch.org/whl/cpu` index). Conversion/training NeMo is not
+required for these already-exported ONNX files and was not installed.
+
+Neither candidate is wired into Gazely's engine selector yet. Next: sequential
+controlled replay with retrieval, reference/word accuracy and sustained latency
+measurement, then integrate only the qualifying candidate. Existing production
+defaults and restart-update artifacts are unchanged by these downloads.
+
+### Inline transcript and same-book quotation retention — 10 October 2026
+
+Live partials now revise the current transcript line in place, retaining its first
+timestamp; final text replaces that line. The separate live-text label is hidden
+in the live workspace. Older finals preserve a newer pending line, Clear resets
+both buffers, and Stop discards unfinished partial text after engine drain.
+Updates replace only the changed text suffix, preserving a user's selection
+where possible. This changes presentation, not ASR endpoint timing or accuracy.
+
+A displayed complete quotation previously could exist outside ActiveReferenceState.
+Book-only emphasis in that same book now retains the displayed numbers as an
+unconfirmed, review-required reference. Different books and explicit chapter
+changes do not inherit these numbers. Existing operator overrides remain intact.
+The reported “efficiency of the form” transcription has not been converted into
+a global Ephesians alias; its numbers cannot safely be reconstructed from text.
+
+Validation: offline build; 330 parser cases and supplementary checks; new selected
+quotation-retention and transcript revision/order/reset checks; full existing
+interface regression suite passed with a fake presentation adapter and no mic.
+Rendered split-reference screenshot inspected. Evidence is under ignored
+`benchmarks/runs/ui-inline-20261010`. Candidate staged as `Gazely.pending.exe`;
+close Gazely and launch `RUN_GAZELY.bat` to activate with the existing rollback.
+No model downloads, speech decoder changes or real presentation commands.
+
+### Streaming alternatives: source review only — 9 October 2026
+
+User instruction: **do not download any new model yet**. No new model or runtime
+was installed, and no application engine/default was changed for this review.
+
+Moonshine's operator test reached the 20-second backlog stop. Existing replays
+also fell behind without retrieval. This establishes insufficient sustained
+throughput in the tested configuration, not the exact underlying cause. Thread
+settings, native decoding cost, thermal/load effects and scheduling remain to be
+isolated. Increasing the queue limit would merely delay failure. Its aggregate
+WER result must not be presented as proof it beats the user's best Whisper run.
+
+Candidate assessment:
+
+| Candidate | Verified route | Size and remaining limits |
+|---|---|---|
+| Nemotron Speech Streaming EN 0.6B | Official NVIDIA NeMo-Speech.cpp supports cache-aware streaming and a native C ABI. Windows x86-64 CPU v0.2.0 release archive exists (5.27 MB). | Official Q8_0 GGUF is listed at approximately 700 MB, exceeding the 500 MB combined speech-weight budget by itself. Gazely peak RAM and sermon accuracy remain unmeasured. |
+| Parakeet Unified EN 0.6B | NVIDIA's streaming implementation uses buffered inference; community INT8 ONNX conversion documents offline inference. | Community report of 633 MB and roughly 1 GB RAM is not a validated Windows streaming configuration. Unified must not be confused with Parakeet TDT v3 supported by NeMo-Speech.cpp. |
+
+Nemotron is the preferred **next evaluation candidate**, conditional on approval
+of the larger download/budget. Its cached encoder state is a better fit for
+continuous CPU streaming than repeatedly recomputing a long context. This is an
+architectural rationale, not proof of better accuracy on Gazely's recordings.
+
+NVIDIA's CPU benchmark reports 27.0 ms average computation per 160 ms chunk,
+5.6x throughput and 3.00% WER. This used an i7-11700K with eight threads on Ubuntu,
+on a 100-utterance LibriSpeech test-clean subset (13.3 minutes). The host had
+128 GB RAM; that is not a measured memory requirement. These figures neither
+certify an ordinary 8 GB Windows laptop nor predict Nigerian sermon accuracy.
+Compute time is not microphone-to-selected-passage latency.
+
+Integration design, not implemented:
+
+1. Pin a tested runtime revision and explicit local model path. Do not invoke
+   default CLI model resolution: it can download a different default model.
+2. Use an isolated native worker initially, keeping crashes outside WinForms.
+   Convert existing PCM16 mono 16 kHz to float32, then use the C ABI's streaming
+   create/push/next/finish calls. Drain the final result before closing a stream.
+3. Preserve session and utterance identities. Update the current transcript
+   paragraph in place for interim text and freeze it on final; do not append
+   partial duplicates. This requested transcript UX is still pending.
+4. Keep interpretation and presentation adapters unchanged. Provisional text
+   must not silently commit uncertain chapter numbers or trigger live output.
+5. Replay the same sermon excerpts with retrieval, then 30 minutes continuously;
+   measure exact references, WER, endpoint delay, backlog, CPU and combined peak
+   memory. Compare the user's actual Whisper configuration, not just one control.
+6. Confirm the chosen release exposes the inspected API; main-branch headers may
+   be newer than the binary. Validate licensing and packaging. Windows text
+   normalization support is limited, so retain Gazely's number interpretation.
+   Stage only after local results pass; preserve the existing rollback build.
+
+Sources inspected (metadata/documentation only):
+- [Native runtime](https://github.com/NVIDIA/NeMo-Speech.cpp)
+- [Windows CPU release assets](https://github.com/NVIDIA/NeMo-Speech.cpp/releases/expanded_assets/v0.2.0)
+- [Official model files](https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b/tree/main)
+- [CPU benchmark and methodology](https://github.com/NVIDIA/NeMo-Speech.cpp/blob/main/BENCHMARK.md)
+- [Streaming C ABI](https://github.com/NVIDIA/NeMo-Speech.cpp/blob/main/include/nemo_speech/asr.h)
+- [Installation and Windows limitations](https://github.com/NVIDIA/NeMo-Speech.cpp/blob/main/docs/install.md)
+- [Parakeet Unified model](https://huggingface.co/nvidia/parakeet-unified-en-0.6b)
+- [Community ONNX conversion](https://huggingface.co/eschmidbauer/parakeet-unified-en-0.6b-onnx)
+
+### Moonshine operator-test build staged — 8 October 2026
+
+Latest user request: stage immediately for hands-on testing. `Gazely.pending.exe`
+now adds **Moonshine Medium (experimental)** and **Moonshine Small (experimental)**
+in Speech setup. Close Gazely and run `RUN_GAZELY.bat` to activate. The default
+engine is unchanged; choose Moonshine explicitly. Automatic presentation is disabled
+for this experimental engine; manual Present remains available. Partials anchor
+the book only, while final text supplies numbers, avoiding provisional chapter
+inheritance seen in replay. No edits are made to the raw transcript.
+
+The C# bridge streams PCM continuously into one native Python Moonshine stream;
+it bypasses Whisper's utterance segmenter. Stop drains and flushes asynchronously;
+session identifiers reject stale callbacks. A bounded 20-second pending queue
+reports overload and stops instead of silently dropping audio. Closing the app
+aborts the worker; use Stop first to finish the transcript.
+
+Both models are installed under ignored `benchmarks/tools` (Medium 269,141,623
+bytes, Small 142,300,974 bytes; combined 411,442,597). This is a local-checkout
+evaluation integration, not a distributable installer. Component SHA256 locks
+are checked at startup. Runtime remains moonshine-voice 0.1.5; no cloud audio.
+
+Validation: build passed; existing 330 parser cases and supplemental suites
+passed. Production C# bridge tested for two fresh sessions for **each** model:
+Medium 10 finals/36 partials; Small 10 finals/40 partials; successful EOF flush,
+no duplicate finals or errors. Full UI regression was not run before this urgent
+staging. Performance/accuracy acceptance gates remain unpassed; see below.
+
+Additional Medium real-time control without search also accumulated 38.38 seconds
+feed lag. Thus search is not the sole cause; development-PC runtime variability
+and sustained model compute still need isolation. Small has bridge validation,
+not a full comparative accuracy result yet.
+
+### Moonshine with concurrent retrieval — 8 October 2026
+
+`replay_moonshine.py --retrieval <app-directory> --mode realtime` now starts the
+installed `Gazely.Search.exe` using its production base64 query protocol. It sends
+final phrases from a separate thread with one pending query (latest wins), drains
+at EOF, saves query timings and raw candidates, and samples combined child-process
+RAM. This is actual semantic embedding/reranking contention, but **not the entire
+production quotation pipeline**: lexical lookup, phrase splitting, context retry,
+WinForms dispatch, SP arbitration and adapters are excluded. No live app settings
+or executables change. The script captures no microphone audio and uses no network.
+
+The 102-second `calls-retrieval-v2` real-time run completed in 103.19 seconds
+including EOF padding: 24 finals, 24 queries, zero errors and zero superseded
+queries. Maximum feed lag was 0.960 seconds; sampled combined memory peaked at
+1,070,174,208 bytes. Search p95 was 516 ms and queue p95 15 ms. These are process
+measurements, not spoken-reference-to-SP latency or an 8 GB certification.
+
+Semantic top matches correctly returned Leviticus 6:13 for the altar/fire phrase,
+6:11 for the garment/ashes phrase, and 6:12 for the next altar phrase. Short generic
+phrases also produce unrelated raw candidates; these are not automatic-live
+decisions. `summarize_moonshine.py` decodes canonical corpus IDs to references.
+
+`Test-TranscriptReferences.ps1` now records the active state for partials as well
+as finals. The Leviticus chain remained anchored through 6:13, 6:14, 6:11 and 6:12.
+It exposed a separate blocker: a provisional "Genesis chapter 12" survived a final
+without a chapter and was combined with verses 3–4. A future Moonshine integration
+must address that incorrect displayed reference; it currently retains
+`RequiresReview=true`, so this trace does not demonstrate an automatic-live error.
+The integration
+must retain provisional book/number provenance per utterance so retracted numbers
+cannot become confirmed by a later verse-only call. Do not solve this by globally
+discarding incomplete references or by hiding incorrect raw transcription.
+
+The earlier `calls-retrieval` run is invalid as a contention benchmark: the new
+connector incorrectly treated an empty successful search response as an error.
+That connector bug was fixed before `calls-retrieval-v2`; original evidence remains.
+
+The installed Moonshine 0.1.5 Python stream uses the previous native decode duration
+to adapt its update interval (`max(update_interval, last_pass)`, with a cap).
+Consequently CPU contention can change the sequence of hypotheses, not only their
+arrival time. Isolated accelerated WER must not be assumed to hold in real time;
+score each concurrent real-time transcript separately.
+
+The 240-second `genesis-retrieval` real-time run scored **24.50% WER** (110 edits /
+449 words), with 62 finals and 62 completed semantic queries, no errors or query
+supersession. The Matthew quotation retrieved Matthew 6:33 first. Combined sampled
+RAM peaked at 1,219,817,472 bytes; search p95 was 573 ms. However maximum audio-feed
+lag reached **9.99 seconds** and the run took 248.85 seconds including EOF/drain.
+This configuration fails the live-speed objective despite the transcription gain.
+The 23.83% isolated result is not its concurrent real-time score. Testing a 750 ms
+update interval is a separate experiment, not a new production default.
+
+`genesis-retrieval-075` scored 23.61% WER but accumulated 23.35 seconds maximum
+feed lag (263.78 seconds elapsed, 1.21 GB sampled combined memory). Reject that
+750 ms interval: a slightly better word score does not justify that delay.
+Moonshine's upstream native runtime provides `MOONSHINE_ORT_SINGLE_THREAD=1`
+([implementation](https://raw.githubusercontent.com/moonshine-ai/moonshine/main/core/ort-utils/ort-utils.cpp));
+the installed DLL contains this setting. The next comparison keeps the original
+500 ms cadence and applies that environment variable only to the benchmark process.
+
+That single-thread comparison (`genesis-retrieval-single`) reduced speech-worker
+CPU time to 323.28 seconds but **worsened maximum feed lag to 47.42 seconds**. WER
+was 24.50%, with 62 final transcripts, 61 queries and one superseded pending query.
+Reject this setting too. Smaller CPU usage is not evidence of faster inference.
+Before attributing the backlog to retrieval or rejecting Medium outright, run the
+same 240-second recording in real time without retrieval. These tests do not isolate
+thermal/power/background-load variability on the development PC.
+
+### Moonshine Medium evaluation — 8 October 2026
+
+Installed `moonshine-voice==0.1.5` in the ignored `benchmarks/tools/moonshine-env`
+environment. Downloaded English Medium Streaming INT8, revision
+`quantized_26_08_21`, into `benchmarks/tools/moonshine-models`. The eight speech
+components total **269,141,623 bytes** (about 257 MiB); this corrects the earlier
+rounded 255–257 MB estimate. Optional spelling assets were also downloaded by the
+vendor helper but are not enabled. No audio was uploaded and no microphone or
+presentation adapter was opened. The English model/runtime uses MIT licensing.
+
+`benchmarks/moonshine-medium-manifest.json` records component sizes and SHA256s;
+`moonshine-requirements.txt` locks the isolated runtime. `replay_moonshine.py`
+verifies those model hashes and runtime version, feeds original PCM in 100 ms
+chunks into native streaming, captures partial/final events, pads EOF, flushes
+Stop, and records worker RAM/CPU. It does not use Gazely's Whisper segmentation.
+`Test-TranscriptReferences.ps1 -Events` runs captured hypotheses through the
+production parser and active-reference state, but excludes wall-clock expiry,
+UI, quotation retrieval and presentation. Final-only replay is insufficient to
+assess this app because partial anchoring changes the context. Treat these output
+references as diagnostics, not end-to-end accuracy scores.
+
+Runs are local under `benchmarks/runs/moonshine`:
+
+| Run | Observation |
+| --- | --- |
+| `calls` (102 s, accelerated) | 53.33 s compute wall time; 582 MB peak worker RAM. Correctly hears Micah and Leviticus 6:13/11/12, but misses Malachi and hears Genesis 49 as “fortunate”. |
+| `calls-keyterms` (102 s, real time) | 103.12 s including EOF padding; 581 MB worker RAM; maximum feed lag 1.02 s. Six book-name hints did not fix Genesis/Malachi. No retrieval contention. |
+| `calls-vad03` | Lower VAD threshold retained longer phrases but introduced stray numbers and did not consistently improve references. Not selected. |
+| `calls-vad0` | Disabling VAD failed in native ONNX decoding (`node_add_10`, incompatible dimensions 20 by 56). No completed transcript or valid performance score. Rejected; keep default VAD. |
+| `genesis-full` (240 s, accelerated) | 184.65 s compute wall time; 693 MB worker RAM. Qualified WER 23.83% (107 edits / 449 reference words). Correct Matthew 6:33 quotation, but a false “1 John” interrupts the Genesis call. |
+| `whisper-base-control` (same 240 s, accelerated) | Current production segmentation/worker, base.en, beam 3, no retrieval. WER 40.31% (181 edits / 449 words). A fresh streaming-pipeline control, distinct from historical batch results. |
+| `silence`, `noise`, `hum` (10 s each) | Zero final text, zero errors on all three synthetic fixtures with Moonshine default VAD. |
+
+This single-recording comparison reduces raw word edits by 40.9% versus the fresh
+base streaming control. It is promising general-transcription evidence, not the
+held-out exact-reference error-reduction gate. Both engines receive the identical
+PCM and are scored identically, but each uses its own segmentation: this measures
+the proposed speech pipeline replacement, not a model-only architecture comparison.
+
+The WER reference is the user's corrected transcript, not independently
+timestamp-verified ground truth; written-number differences and the uncertain
+ending count as errors. Past Whisper batch WER numbers are not matched streaming
+controls. The CPU measurements are on this development PC, not certification of
+an 8 GB presentation PC. These results do not demonstrate the 25% reduction gate
+or Nova-3 parity. Moonshine is an evaluation candidate, not a production default;
+Gazely.exe, its pending update and speech preferences are untouched by this phase.
+
+Next gate: test default-VAD Moonshine alongside scripture retrieval, using verified
+reference timestamps and held-out excerpts. Investigate the Genesis number/book
+substitution before offering it as a selectable production engine. Neither name
+hints nor lowering/disabling VAD earned promotion. The replay now saves partial
+events and failure details for Python-level decode errors; native process crashes
+can still leave only the run manifest.
+
+To repeat locally (from the repository root, PowerShell), use the existing
+isolated Python with `benchmarks/replay_moonshine.py <PCM-WAV> <model-directory>
+<new-output-directory> [--mode realtime]`. Use `--keyterms` only for a separate
+comparison and `--vad-threshold 0.3` to reproduce the rejected VAD experiment.
+
+### Hearing pipeline and SP quote alternatives — 7 October 2026
+
+The current implementation adds a 20-second PCM ring (640 KB), sample-indexed
+speech jobs, and a serialized same-model refinement scheduler. It snapshots up to
+16 seconds, admits only idle work estimated below 800 ms, expires recovery four
+seconds after the source chunk's last voice, and permits two attempts per intent
+at least three seconds apart. Session/intent identity, operator edits, release and
+new references invalidate results. Book corrections can inherit the existing
+numbers only through the correction parser and remain review-required. Recovery
+never edits the raw transcript or triggers automatic presentation.
+
+**Recheck unclear references (experimental)** is a persisted Speech setup toggle,
+off by default. The measured development matrix admitted no refinement jobs on
+this PC: its conservative cost gate protected live speech, but it has not shown
+an accuracy gain. Do not enable it by default without new measured evidence.
+
+A repeated leading verse number can no longer become a missing chapter. The
+matrix also exposed a clean numeric call after "Leviticus is. 6th verse 13";
+a narrow book-tail grammar handles that without replacing ordinary words.
+
+The latest user addition supersedes automatic same-book quotation completion:
+strong unambiguous lexical quotations (score >= .94) appear as smaller muted SP
+alternatives, leaving the spoken anchor in place. Clicking a quote selects it for
+review and exposes a return-to-spoken-anchor button. Speech continues updating
+that anchor while the operator holds the quote. Up to 20 alternatives remain in
+the scrollable SP list; all suggestions remain in History. Clearing Detections
+also clears this list, preserving History. Compact windows can scroll the reading
+area instead of clipping scripture text. Selecting an alternative does not present.
+
+`benchmarks/Run-HearingMatrix.ps1` runs sequential normalization/context/beam/VAD
+ablations using the installed models and concurrent semantic retrieval. EOF padding
+now follows the configured endpoint. Twelve accelerated variants completed with
+zero inference errors or dropped final windows; see
+`benchmarks/hearing-matrix-results.csv`. Accelerated timing is NOT live latency,
+and reference output counts are NOT accuracy. Base 10-second windows recovered
+Leviticus 6:11/12; quantized small recovered 6:13 too, but took roughly 6–8 seconds
+per final inference. Neither reliably recovered the Malachi/Micah correction.
+Silero degraded the selected reference excerpts and remains disabled.
+
+`prepare_hearing_fixtures.py` preserves local source hashes and separates phase
+development excerpts from reserved excerpts; silence/noise/hum fixtures are seeded.
+`score_reference_events.py` excludes unverified annotations and reports no live
+latency for accelerated runs. The annotation template has unverified approximate
+timings: do not claim the 25% error-reduction gate without checked audio labels.
+The existing Genesis user reference supports qualified whole-recording WER only.
+
+An additional MIT Distil-Whisper candidate was downloaded and SHA256-verified by
+`Get-CompactSpeechCandidate.ps1`: 336,191,657 bytes; base + distil + VAD totals
+485,040,966 bytes. This is an evaluation candidate, not a production UI profile.
+Source: https://huggingface.co/distil-whisper/distil-small.en (pinned revision and
+checksum in the downloader). Bench models are not automatically bundled together.
+
+Its sequential 102-second accelerated replay (`distil-calls`) completed without
+errors or dropped finals, but missed Genesis 49:3–4 and the Malachi/Micah correction.
+It emitted Leviticus 6:13 and 6:12; final inference p95 was 3,408.90 ms. This is
+insufficient evidence to replace base.en, and the candidate remains evaluation-only.
+No new speech model or decoder/window default is promoted in this update.
+
+The UI suite `benchmarks/runs/ui-hearing-release` passed quote/anchor
+swapping, further spoken navigation, retaining other quotes, stale recovery,
+no unintended presentation, layout and preferences. Parser, quotation and 31 audio
+pipeline checks also passed.
+
+The 30-minute real-time replay (`benchmarks/runs/hearing-phase/stress-30min`)
+completed all 277 final windows with zero inference errors, zero dropped finals,
+and at most one waiting job. Final-readiness p95 was 1,919.78 ms from the window's
+last voice; queue p95 was 813.40 ms. These are transcription measurements, not
+correct-reference display latency. Only two explicit detections were emitted:
+reliability and timing do not establish recognition accuracy. Sampled combined
+working set peaked at 1,377,771,520 bytes for replay, speech and retrieval workers.
+The harness retained completed audio keys during this run (subsequently fixed),
+and some UI regression checks ran alongside it. This is not an isolated benchmark
+or validation alongside presentation software on an actual 8 GB PC. No refinement
+jobs were admitted. Held-out accuracy and the 25% improvement gate remain unproven.
+
+Fixed 10-second silence, seeded noise and hum replays with retrieval produced zero
+explicit scripture calls and no errors/dropped finals. Silence emitted no speech.
+Noise still hallucinated ordinary text ("Let's go", "that's it") and hum emitted
+"you": noise rejection is not solved. These synthetic checks are not a replacement
+for annotated real background-noise recordings. The tested candidate is staged
+through `Gazely.pending.exe`; restart with `RUN_GAZELY.bat` to activate it while
+retaining the previous executable. This delivers the guarded functionality, not
+acceptance of the speech-accuracy targets. Checked audio labels, held-out accuracy,
+real reference-display latency and an actual 8 GB presentation-PC trial remain.
+
+
+### Incomplete final transcripts must not erase SP — 7 October 2026
+
+The reported 09:09 log contains no final chapter/verse at the Leviticus call.
+Previously finalization dropped the partial reference and restored book-only SP.
+`ActiveReferenceState` now keeps a separate review-required retained hypothesis.
+Less-complete same-book updates cannot downgrade a resolved reference. Explicit
+new references replace it, and Release scripture clears all three states.
+Retained numbers are not confirmed evidence: the UI marks them Unconfirmed, and
+presentation policy rejects them for automation. Manual review remains available.
+Contextual `go to VES 11` / `start from VES 11` can recover verse navigation only
+with an existing book and chapter, always requiring review. No global word-to-number
+or `west` substitution was introduced. Raw transcription remains unchanged.
+
+Verification: parser suite, desktop build, and full UI regression passed in
+`benchmarks/runs/ui-retained-reference-1`, including the reported incomplete-final
+sequence, competing quotes, contextual VES, explicit replacement, release and no
+unexpected adapter actions. This fixes selection persistence, not acoustic accuracy.
+
+### Active-reference SP state machine — 6 October 2026
+
+`ActiveReferenceState` separates confirmed and provisional scripture intent, with
+Searching, Book identified, Chapter identified and Reference resolved stages.
+Credible partial book calls appear immediately. Incomplete revisions now retain the more complete hypothesis as Unconfirmed (see 7 October correction above). Both speech backends use this state.
+The confirmed or retained state seeds parser context before each new transcript, so normal
+pauses and explanations do not expire the active book/chapter. Standalone parser
+expiry rules remain unchanged when no active state is supplied.
+
+SP remains locked against quote-driven replacement, including during book/chapter
+drafts and after corrected references. Quotations still populate Detections and
+History. New explicit references, contextual verse instructions, corrections and
+operator actions remain available. Release scripture replaces the former Follow
+speech action and clears both operator hold and active intent. Stop/start resets
+the active context; clearing Detections alone does not release it.
+
+A bounded implicit switch is supported only for explicit transition phrases
+(elsewhere Scripture/Bible says, another scripture/passage says, in another place
+it says) plus a current-text lexical quotation score >= .94 with no shared-wording
+ambiguity. It does not use semantic cosine as a switch probability. The quotation
+remains review-required and cannot automatically present. Other implied transitions
+remain operator decisions. No speech-model or acoustic settings changed.
+
+This supersedes timed SP protection and earlier tests expecting Isaiah/Micah quotes
+to complete or replace an active reference. Those quotes must now reach Detections
+without taking SP. UI coverage also checks partial withdrawal, book/chapter/verse
+progression, aged active state, explicit book switching, a supported quote transition
+and release. The final regression evidence is `benchmarks/runs/ui-active-reference-final`.
+
+### Leviticus selection stability — 6 October 2026
+
+[Recording findings](benchmarks/LEVITICUS_SAMPLE_FINDINGS.md) document the 13–16
+minute excerpt and same-server longer-context experiment. Production ASR defaults
+remain unchanged. Parser now retains bounded explicit book requests across filler,
+handles chapter-slot ordinals and additional contextual verse instruction forms.
+Recent explicit/contextual/navigation selections are protected from quote replacement
+for 90 seconds; this supersedes the earlier ten-second automatable-only guard.
+Candidate publication and manual/new spoken reference changes remain available.
+Full UI replay verifies the reported 6:13 → 6:11 → 6:12 flow against competing
+quote results, alongside existing regression cases. Selective audio re-decoding
+remains an experiment to implement, not a shipped feature.
+
+### Malachi / Micah correction and replay — 2 October 2026
+
+See [sample findings](benchmarks/MICAH_SAMPLE_FINDINGS.md) for the actual recording
+comparison. Base and small both failed the explicit call in live replay; small was
+slower. No speech default or model changed. Book-only explicit corrections now
+retain recent valid numbers as review-required evidence and update quote scope.
+Parallel lexical quotations retain a bounded review shortlist rather than hiding
+all near-tied passages. Page 1 contains newest detections after pins; Latest returns
+there without changing the policy that protects an operator browsing older cards.
+These changes do not claim to fix the recording's acoustic transcription errors.
 
 ### Remembered preferences and stable detections — 2 October 2026
 

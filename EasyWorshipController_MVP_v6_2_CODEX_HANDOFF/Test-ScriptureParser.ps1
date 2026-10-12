@@ -131,6 +131,9 @@ Assert-Reference $detector 'And the excellency of my power is important. Next ve
 Assert-Reference $detector 'next verse' 'Genesis 49:5'
 Assert-Reference $detector 'previous verse' 'Genesis 49:4'
 Assert-Reference $detector 'go back one verse' 'Genesis 49:3'
+Assert-Reference $detector "that's a problem next verse" 'Genesis 49:4'
+Assert-Reference $detector 'do not move now next verse' ''
+Assert-Reference $detector 'the problem next verse is difficult' ''
 Assert-Reference $detector 'next week we will finish' ''
 Assert-Reference $detector 'next' ''
 Assert-Reference $detector 'Genesis 1:31' 'Genesis 1:31'
@@ -219,3 +222,121 @@ $detector.GetType().GetField('unresolvedUtc',[Reflection.BindingFlags]'Instance,
 Assert-Reference $detector 'Jacob was blessing his son' ''
 if($detector.UnresolvedBook){throw 'Expired unresolved intent survived.'}
 Write-Host "PASS: $count reference cases including unresolved-intent persistence, expiry, preview isolation and resolution."
+$detector.Reset()
+Assert-Reference $detector 'Malachi chapter four verse two' 'Malachi 4:2'
+$corrected=$detector.Feed('No, Micah, Micah.')
+if($corrected.ReferenceText -ne 'Micah 4:2' -or !$corrected.RequiresReview -or $corrected.EvidenceKind -ne 'correction'){throw 'Book-only correction did not preserve numbers as review-required evidence'}
+Assert-Reference $detector 'verse one' 'Micah 4:1'
+$detector.Reset()
+Assert-Reference $detector 'Malachi chapter four verses one and two. No, Micah.' 'Micah 4:1-2'
+$detector.Reset()
+Assert-Reference $detector 'No Micah' ''
+Assert-Reference $detector 'Malachi 4:2' 'Malachi 4:2'
+Assert-Reference $detector 'Micah' ''
+$detector.Reset()
+Assert-Reference $detector 'Psalms 119:105' 'Psalms 119:105'
+Assert-Reference $detector 'No Micah' ''
+$detector.Reset()
+Assert-Reference $detector 'Malachi 4:2' 'Malachi 4:2'
+$null=$detector.Preview('No Micah')
+Assert-Reference $detector 'verse three' 'Malachi 4:3'
+Assert-Reference $detector 'No Micah is not what I meant' ''
+$detector.Reset()
+Assert-Reference $detector 'Malachi 4:2' 'Malachi 4:2'
+$detector.GetType().GetField('contextUpdatedUtc',[Reflection.BindingFlags]'Instance,NonPublic').SetValue($detector,[datetime]::UtcNow.AddSeconds(-31))
+Assert-Reference $detector 'No Micah' ''
+Write-Host 'PASS: book correction retains valid numbers/ranges, updates verse context, rejects stale/invalid/unanchored cases and isolates previews.'
+$detector.Reset()
+Assert-Reference $detector "Now if you go to Leviticus, let's jump a bit." ''
+Assert-Reference $detector "Let's jump in, let's see what the vertical says. Sixth verse 13." 'Leviticus 6:13'
+Assert-Reference $detector "It says, go to verse 11. Let's start from verse 11. Okay." 'Leviticus 6:11'
+Assert-Reference $detector 'Okay, verse 12.' 'Leviticus 6:12'
+$detector.Reset()
+Assert-Reference $detector 'Leviticus 6th verse 13' 'Leviticus 6:13'
+Assert-Reference $detector 'Leviticus sixth verse thirteen' 'Leviticus 6:13'
+Assert-Reference $detector "Now if you go to Leviticus, let's jump a bit. Let's see what Leviticus says. 6th verse 13." 'Leviticus 6:13'
+$detector.Reset()
+Assert-Reference $detector 'Sixth verse 13' ''
+Assert-Reference $detector 'Let us go to Leviticus, let us jump a bit.' ''
+Assert-Reference $detector 'John 3 verse 16' 'John 3:16'
+$detector.Reset()
+Assert-Reference $detector 'Let us go to Leviticus, let us jump a bit.' ''
+$detector.GetType().GetField('unresolvedUtc',[Reflection.BindingFlags]'Instance,NonPublic').SetValue($detector,[datetime]::UtcNow.AddSeconds(-21))
+Assert-Reference $detector 'Sixth verse 13' ''
+$detector.Reset()
+Assert-Reference $detector 'We finished sixth in the race and drove west eleven miles' ''
+Write-Host 'PASS: Leviticus split call, chapter ordinals and contextual verse commands; missing/expired anchors and ordinary ordinal speech abstain.'
+$detector.Reset()
+Assert-Reference $detector 'Leviticus' ''
+Assert-Reference $detector "11 let's start from verse 11 okay and he pulled off his garment" ''
+if($detector.UnresolvedChapter -ne 0){throw 'Verse directive became a chapter'}
+Assert-Reference $detector 'Okay verse 12' ''
+$detector.Reset()
+Assert-Reference $detector 'Leviticus chapter six verse thirteen' 'Leviticus 6:13'
+Assert-Reference $detector 'Go to VES 11' 'Leviticus 6:11'
+Assert-Reference $detector 'Okay verse 12' 'Leviticus 6:12'
+Write-Host 'PASS: repeated verse number cannot invent a missing chapter; VES uses existing chapter only.'
+$detector.Reset()
+Assert-Reference $detector "Let's see what Leviticus is. 6th verse 13." 'Leviticus 6:13'
+$detector.Reset()
+Assert-Reference $detector 'Leviticus is important for 6 people and 13 families' ''
+
+$active=New-Object ActiveReferenceState
+$selected=New-Object ScriptureDetection
+$selected.Book='Leviticus';$selected.Chapter=2;$selected.Verse=3;$selected.EvidenceKind='quotation'
+$book=New-Object ScriptureDetection
+$book.Book='Leviticus';$book.RequiresReview=$true
+$active.PreserveSelectedPassage($selected,$book)
+$active.Preview($book)
+$active.Confirm($book)
+if($active.Current.ReferenceText -ne 'Leviticus 2:3' -or !$active.Current.RequiresReview){throw 'Book emphasis erased or silently confirmed a selected quotation'}
+$other=New-Object ScriptureDetection
+$other.Book='Ephesians'
+$active.PreserveSelectedPassage($selected,$other)
+$active.Confirm($other)
+if($active.Current.Book -ne 'Ephesians' -or $active.Current.Chapter -ne 0){throw 'New book inherited old quotation numbers'}
+$live=New-Object LiveTranscriptBuffer
+$live.Update('1','Genesis forty',$false,'10:00:00')
+$live.Update('1','Genesis forty nine',$false,'10:00:01')
+if($live.Text -ne '[10:00:00] Genesis forty nine'){throw 'Partial text duplicated or timestamp jumped'}
+$live.Update('1','Genesis 49',$true,'10:00:02')
+$live.Update('2','verse three',$false,'10:00:03')
+$live.Update('2','verse four',$true,'10:00:04')
+if($live.Text -ne "[10:00:00] Genesis 49`r`n[10:00:03] verse four`r`n"){throw 'Final did not replace live words in place'}
+$live.Update('4','new live words',$false,'10:00:05')
+$live.Update('3','older final',$true,'10:00:06')
+if(!$live.Text.EndsWith('[10:00:05] new live words')){throw 'Older final erased newer live words'}
+$live.DiscardPartial()
+if($live.Text.Contains('new live words')){throw 'Restart kept unfinished words'}
+$live.Clear()
+if($live.Text.Length -ne 0){throw 'Clear retained transcript'}
+Write-Host 'PASS: same-book selected quote retention and in-place transcript revisions/finals/restart.'
+
+# Translation context belongs to the active passage, not the entire session.
+$versions=New-Object ScriptureDetector
+$null=$versions.Feed('John 3:16 in NIV')
+foreach($phrase in @('verse seventeen','next verse')) {
+ $v=$versions.Feed($phrase)
+ if($v.Translation -ne 'NIV' -or !$v.TranslationExplicit){throw "Version lost on $phrase"}
+}
+foreach($phrase in @('use the Message','give me that in NLT','read it in the amplified bible','NIV')) {
+ $v=$versions.Feed($phrase)
+ if($null -eq $v -or $v.ReferenceText -ne 'John 3:18' -or !$v.TranslationExplicit -or !$v.RequiresReview -or $v.EvidenceKind -ne 'translation'){throw "Translation-only request failed: $phrase"}
+}
+$null=$versions.Preview('use the Message')
+$v=$versions.Feed('verse nineteen')
+if($v.Translation -ne 'NIV' -or !$v.TranslationExplicit){throw 'Partial translation changed finalized context'}
+foreach($phrase in @('this message is important','do not use NIV','we often read the new living translation','use the Message tomorrow')) {
+ if($null -ne $versions.Feed($phrase)){throw "Non-directive changed translation: $phrase"}
+}
+$v=$versions.Feed('Romans 8:1')
+if($v.TranslationExplicit -or ![string]::IsNullOrEmpty($v.Translation)){throw 'New reference inherited previous version'}
+$versions.Reset()
+if($null -ne $versions.Feed('use NIV')){throw 'Translation invented an unanchored passage'}
+$null=$versions.Feed('John chapter three in NIV')
+$v=$versions.Feed('verse sixteen')
+if($v.Translation -ne 'NIV' -or !$v.TranslationExplicit){throw 'Split chapter/verse lost requested version'}
+$null=$versions.Feed('John 3:16 in NIV')
+$v=$versions.Feed('next verse in NLT')
+if($v.Translation -ne 'NLT' -or !$v.TranslationExplicit){throw 'Navigation ignored a new explicit version'}
+Write-Output 'PASS: translation-only directives, verse/navigation inheritance, split references, preview isolation, new-reference KJV reset and negative commands.'

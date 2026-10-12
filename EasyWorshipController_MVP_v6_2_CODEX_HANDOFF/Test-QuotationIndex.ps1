@@ -20,6 +20,13 @@ foreach($text in @('Genesis one one','John 3:16')){if(![SpeechPresentationPolicy
 $quote=$index.Find('Unstable as water thou shalt not excel')
 if([SpeechPresentationPolicy]::CanAutomate($quote)){throw 'Uncertain quotation became automatic'}
 Write-Output 'PASS: speech ranges start at first verse; anchored clear navigation and numeric references eligible; uncertain matches remain review-only.'
+$splitParser=New-Object ScriptureDetector
+$null=$splitParser.Feed('in a genesis chapter forty nine')
+$splitRange=$splitParser.Feed('verses three and verse four')
+$splitFirst=[SpeechPresentationPolicy]::Resolve($splitRange,$null,$false)
+if($splitFirst.ReferenceText -ne 'Genesis 49:3' -or !$splitFirst.RequiresReview -or $splitRange.VerseEnd -ne 4){throw 'Split contextual range must start at first verse and retain review requirement'}
+$spokenNext=[SpeechPresentationPolicy]::Resolve($splitParser.Feed("that's a problem next verse"),$splitFirst,$true)
+if($spokenNext.ReferenceText -ne 'Genesis 49:4' -or [SpeechPresentationPolicy]::CanAutomate($spokenNext)){throw 'Punctuation-free continuation should be selectable, never automatically presented'}
 $chapterParser=New-Object ScriptureDetector
 if($chapterParser.Feed("The transcription of shoot to you, Isaiah 51, I want to don't forget it.")){throw 'Unknown verse invented'}
 if($chapterParser.UnresolvedBook -ne 'Isaiah' -or $chapterParser.UnresolvedChapter -ne 51){throw 'Explicit chapter lost when verse was unclear'}
@@ -86,6 +93,14 @@ $ten=@($cases[0..7] | ForEach-Object {$_[0]})+@('I can do all things through Chr
 $tenFound=@($index.FindAll(($ten -join '. ')) | ForEach-Object ReferenceText)
 foreach($expected in (@($cases[0..7] | ForEach-Object {$_[1]})+@('Philippians 4:13','John 3:16'))){if($expected -notin $tenFound){throw "Ten-quote burst lost $expected"}}
 Write-Output 'PASS: ten separate quoted passages survive one transcript burst.'
+$parallel=@($index.FindAll('the mountain of the house of the Lord shall be established in the top of the mountains'))
+foreach($expected in @('Micah 4:1','Isaiah 2:2')){if($expected -notin @($parallel | ForEach-Object ReferenceText)){throw "Shared quotation hid $expected"}}
+foreach($match in $parallel){if(!$match.RequiresReview -or [SpeechPresentationPolicy]::CanAutomate($match)){throw 'Ambiguous parallel quotation became automatic'}}
+$correctedParser=New-Object ScriptureDetector
+$null=$correctedParser.Feed('Malachi 4:2')
+$correction=$correctedParser.Feed('No Micah')
+if([SpeechPresentationPolicy]::CanAutomate($correction)){throw 'Book correction became automatic'}
+Write-Output 'PASS: parallel Micah/Isaiah wording retained for review without changing single-best or automatic policy.'
 $parser=New-Object ScriptureDetector
 $mentioned=@($parser.FindMentionedReferences('Psalm 23 verse 1 and first Corinthians chapter 13 verse 4 and John 3 verse 16') | ForEach-Object ReferenceText)
 foreach($expected in @('Psalms 23:1','1 Corinthians 13:4','John 3:16')){if($expected -notin $mentioned){throw "Multi-reference call lost $expected"}}

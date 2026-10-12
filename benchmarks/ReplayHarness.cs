@@ -4,6 +4,15 @@ internal sealed class ReplayHarness
     private WhisperServerEngine whisperEngine = new WhisperServerEngine();
     private readonly UtteranceSegmenter utteranceSegmenter = new UtteranceSegmenter();
     private readonly ScriptureDetector scriptureDetector = new ScriptureDetector();
+    private readonly ActiveReferenceState activeReference=new ActiveReferenceState();
+    private readonly ReferenceRefinement referenceRefinement=new ReferenceRefinement();
+    private readonly OfflineSemanticSearch semanticSearch=new OfflineSemanticSearch();
+    private ScriptureQuoteIndex quoteIndex;
+    private bool refinement, retrieval;
+    private readonly object retrievalLock=new object();
+    private string retrievalText;
+    private bool retrievalRunning;
+    private int maxQueue;
     private readonly List<SpeechChunk> whisperQueue = new List<SpeechChunk>();
     private bool whisperWorkerRunning;
     private volatile int listeningSession = 1;
@@ -17,11 +26,19 @@ internal sealed class ReplayHarness
     private string output;
     private int sequence, failures;
     private long serverPeak, harnessPeak;
+    private long retrievalPeak, combinedPeak;
+    private double retrievalCpu;
     private Process server;
     private void SampleMemory()
     {
         harnessPeak=Math.Max(harnessPeak,Process.GetCurrentProcess().PeakWorkingSet64);
         if(server!=null && !server.HasExited) { server.Refresh(); serverPeak=Math.Max(serverPeak,server.PeakWorkingSet64); }
+        try{
+            Process worker=(Process)typeof(OfflineSemanticSearch).GetField("worker",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance).GetValue(semanticSearch);
+            long working=Process.GetCurrentProcess().WorkingSet64+(server==null || server.HasExited?0:server.WorkingSet64);
+            if(worker!=null && !worker.HasExited){worker.Refresh();retrievalPeak=Math.Max(retrievalPeak,worker.PeakWorkingSet64);retrievalCpu=worker.TotalProcessorTime.TotalMilliseconds;working+=worker.WorkingSet64;}
+            combinedPeak=Math.Max(combinedPeak,working);
+        }catch(InvalidOperationException){} // Worker may finish between samples.
     }
 
     // PRODUCTION_WORKER_METHODS
@@ -31,6 +48,7 @@ internal sealed class ReplayHarness
     {
         lock (evidenceLock)
         {
+            if(chunk!=null && !spans.ContainsKey(chunk))spans.Add(chunk,new double[]{chunk.AudioStartSample/16.0,chunk.AudioEndSample/16.0,0});
             double[] span = chunk == null ? new double[] {0, 0, 0} : spans[chunk];
             double ready = chunk == null ? 0 : (Stopwatch.GetTimestamp()-chunk.LastVoiceTicks)*1000.0/Stopwatch.Frequency;
             double queue = chunk == null || span[2] == 0 ? 0 : (span[2]-chunk.QueuedTicks)*1000.0/Stopwatch.Frequency;
@@ -41,9 +59,29 @@ internal sealed class ReplayHarness
                 queue.ToString("F2",System.Globalization.CultureInfo.InvariantCulture), inferenceMs.ToString("F2",System.Globalization.CultureInfo.InvariantCulture),
                 ready.ToString("F2",System.Globalization.CultureInfo.InvariantCulture), Cell(text), Cell(reference) }));
             events.Flush();
+            if(chunk!=null && (kind=="partial" || kind=="final" || kind=="refined" || kind=="empty_final" || kind=="dropped" || kind=="superseded"))spans.Remove(chunk);
         }
     }
-    private void TraceStarted(SpeechChunk chunk, long ticks) { lock(evidenceLock) spans[chunk][2]=ticks; Event("started",chunk,"","",0); }
+    private void TraceStarted(SpeechChunk chunk, long ticks) { Event(chunk.IsRefinement?"refinement_started":"started",chunk,"","",0);lock(evidenceLock) spans[chunk][2]=ticks; }
+    private void OnRefinementStarted(SpeechChunk chunk) {}
+    private void OnRefinedTranscript(string text,SpeechChunk chunk,double inferenceMs)
+    {
+        ScriptureDetection active=activeReference.Current;
+        var parser=new ScriptureDetector();if(chunk.CorrectionRequested && active!=null && active.Chapter>0 && active.Verse>0)parser.SeedActiveReference(active);
+        ScriptureDetection d=parser.Feed(text);
+        bool corrected=d!=null && chunk.CorrectionRequested && d.EvidenceKind=="correction";
+        if(!referenceRefinement.IsCurrent(chunk) || (Stopwatch.GetTimestamp()-chunk.LastVoiceTicks)*1000.0/Stopwatch.Frequency>4000)d=null;
+        if(d!=null && active!=null && (d.Book==active.Book || corrected) && (active.Verse==0 || active.RequiresReview || corrected)){d.RequiresReview=true;d.EvidenceKind="audio-refinement";activeReference.Confirm(d);}
+        else d=null;
+        Event("refined",chunk,text,d==null?"":d.ReferenceText,inferenceMs);
+    }
+    private void RequestRefinement(SpeechChunk source,string text)
+    {
+        ScriptureDetection active=activeReference.Current;
+        referenceRefinement.UpdateIntent(active==null?null:active.ReferenceText,listeningSession);
+        bool correction=Regex.IsMatch(text??string.Empty,@"\b(?:no|sorry|correction|i mean)\b",RegexOptions.IgnoreCase);
+        if(refinement && active!=null && (active.Verse==0 || active.RequiresReview || correction))referenceRefinement.Request(utteranceSegmenter.RecentAudio,Stopwatch.GetTimestamp()*1000.0/Stopwatch.Frequency,source.LastVoiceTicks*1000.0/Stopwatch.Frequency,correction);
+    }
     private void TraceDrop(SpeechChunk chunk) { Event("dropped",chunk,"","",0); }
     private bool TraceSuperseded(SpeechChunk chunk, bool remove) { if(remove) Event("superseded",chunk,"","",0); return remove; }
     private void AddLog(string value)
@@ -53,14 +91,24 @@ internal sealed class ReplayHarness
     private void SetWhisperStatusSafe(string status, Color color) { Interlocked.Increment(ref failures); Event("error",null,status,"",0); }
     private void OnPartialTranscript(string text, SpeechChunk chunk, double inferenceMs)
     {
-        ScriptureDetection candidate = scriptureDetector.Preview(text);
+        scriptureDetector.SeedActiveReference(activeReference.Context);
+        ScriptureDetection candidate = scriptureDetector.Preview(text,true);
+        activeReference.Preview(candidate);RequestRefinement(chunk,text);
         Event("partial",chunk,text,candidate == null ? "" : candidate.ReferenceText,inferenceMs);
     }
     private void OnFinalTranscript(string text, double confidence, string engine, double inferenceMs, int session, SpeechChunk chunk)
     {
+        scriptureDetector.SeedActiveReference(activeReference.Context);
         ScriptureDetection result = scriptureDetector.FeedFinal(text,session+":"+chunk.UtteranceId);
+        activeReference.Confirm(result);
+        if(result==null && (scriptureDetector.UnresolvedSource??string.Empty).EndsWith(text) && !string.IsNullOrEmpty(scriptureDetector.UnresolvedBook))activeReference.Confirm(new ScriptureDetection{Book=scriptureDetector.UnresolvedBook,Chapter=scriptureDetector.UnresolvedChapter,SourceText=text,EvidenceKind="draft",RequiresReview=true});
+        RequestRefinement(chunk,text);
         if(result == null) result = scriptureDetector.Suggest(text);
         Event("final",chunk,text,result == null ? "" : result.ReferenceText,inferenceMs);
+        if(retrieval)lock(retrievalLock){retrievalText=text;if(!retrievalRunning){retrievalRunning=true;ThreadPool.QueueUserWorkItem(delegate{
+            while(true){string query;lock(retrievalLock){query=retrievalText;retrievalText=null;if(query==null){retrievalRunning=false;return;}}
+                try{var found=semanticSearch.Find(quoteIndex,query);Event("retrieval",null,semanticSearch.Status,found.Count==0?"":found[0].ReferenceText,0);}catch(Exception ex){AddLog("Retrieval error: "+ex.Message);}}
+        });}}
     }
     private void WaitIdle()
     {
@@ -104,6 +152,7 @@ internal sealed class ReplayHarness
     {
         byte[] pcm=ReadPcm(args[0]); output=args[1]; string mode=args[2], model=args[3];
         int limit=int.Parse(args[4]); saveChunks=bool.Parse(args[5]);
+        refinement=args.Length>11 && bool.Parse(args[11]);retrieval=args.Length>12 && bool.Parse(args[12]);
         if(limit>0 && pcm.Length>limit*32000L) Array.Resize(ref pcm,limit*32000);
         Directory.CreateDirectory(output); if(saveChunks) Directory.CreateDirectory(Path.Combine(output,"chunks"));
         using(events=new StreamWriter(Path.Combine(output,"events.tsv"),false,Encoding.UTF8))
@@ -120,21 +169,30 @@ internal sealed class ReplayHarness
                 Event("emitted",chunk,"","",0); if(saveChunks) SaveChunk(chunk); OnSpeechChunk(chunk);
             };
             if(args.Length>6) whisperEngine.EnableNeuralVad=bool.Parse(args[6]);
+            if(args.Length>9)whisperEngine.BeamSizeOverride=int.Parse(args[9]);
+            if(args.Length>10)whisperEngine.NormalizeInput=bool.Parse(args[10]);
+            if(retrieval)quoteIndex=new ScriptureQuoteIndex(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"corpus","kjv.tsv"));
             whisperEngine.Start(model,AddLog);
             server=(Process)typeof(WhisperServerEngine).GetField("process",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance).GetValue(whisperEngine);
             clock.Start();
-            // Explicit 600 ms artificial EOF silence flushes pending speech; it is labeled in the manifest.
-            for(int offset=0;offset<pcm.Length+19200;offset+=1280) {
+            int eofMs=Math.Max(800,utteranceSegmenter.SilenceToFinalizeMs+400);
+            for(int offset=0;offset<pcm.Length+eofMs*32;offset+=1280) {
                 int length=offset<pcm.Length?Math.Min(1280,pcm.Length-offset):1280;
                 if(mode=="realtime") while(clock.Elapsed.TotalMilliseconds<(offset+length)/32.0) Thread.Sleep(1);
                 byte[] frame=new byte[length]; if(offset<pcm.Length) Buffer.BlockCopy(pcm,offset,frame,0,length);
                 inputMs=(offset+length)/32.0; utteranceSegmenter.Process(frame);
                 SampleMemory();
+                lock(whisperQueue)maxQueue=Math.Max(maxQueue,whisperQueue.Count);
                 if(mode=="accelerated") WaitIdle();
             }
             WaitIdle(); audioListening=false; Event("completed",null,"presentation disabled","",0);
+            Stopwatch retrievalDrain=Stopwatch.StartNew();while(retrievalRunning && retrievalDrain.ElapsedMilliseconds<30000)Thread.Sleep(20);
+            if(retrievalRunning)throw new TimeoutException("Retrieval did not drain");SampleMemory();semanticSearch.Dispose();
             SampleMemory();
             File.WriteAllText(Path.Combine(output,"resources.tsv"),"server_peak_working_set_bytes\tharness_peak_working_set_bytes\tserver_cpu_ms\treplay_wall_ms\n"+serverPeak+"\t"+harnessPeak+"\t"+server.TotalProcessorTime.TotalMilliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture)+"\t"+clock.Elapsed.TotalMilliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            File.WriteAllText(Path.Combine(output,"queue.json"),"{\"maximum_waiting_jobs\":"+maxQueue+"}");
+            File.WriteAllText(Path.Combine(output,"refinement.json"),"{\"requested\":"+referenceRefinement.Requested+",\"admitted\":"+referenceRefinement.Admitted+",\"expired\":"+referenceRefinement.Expired+",\"deferred_checks\":"+referenceRefinement.Deferred+"}");
+            File.WriteAllText(Path.Combine(output,"process-resources.tsv"),"sampled_combined_working_set_bytes\tretrieval_peak_working_set_bytes\tretrieval_cpu_ms\tharness_cpu_ms\n"+combinedPeak+"\t"+retrievalPeak+"\t"+retrievalCpu.ToString(System.Globalization.CultureInfo.InvariantCulture)+"\t"+Process.GetCurrentProcess().TotalProcessorTime.TotalMilliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Console.WriteLine("Replay finished: "+mode+", "+pcm.Length/32000.0+" seconds of audio; "+failures+" inference errors. No presentation adapter included.");
         }
         return failures==0?0:1;

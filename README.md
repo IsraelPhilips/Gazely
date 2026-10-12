@@ -1,4 +1,4 @@
-﻿# Gazely
+# Gazely
 
 **Intelligence for live presentation.**
 
@@ -11,6 +11,7 @@ features of the current prototype.
 
 ## Read these documents
 
+- [Technical guide](TECHNICAL_GUIDE.md): codebase onboarding for engineers, models, retrieval internals, process boundaries and development workflow.
 - [Product vision](PRODUCT_VISION.md): product boundaries, hardware goals, architecture and roadmap.
 - [Execution plan](EXECUTION_PLAN.md): next-phase milestones, contextual navigation rules, acceptance targets and delivery order.
 - [Engineering handoff](ENGINEERING_HANDOFF.md): implemented behavior, evidence, limitations, tests and preserved EasyWorship discoveries.
@@ -36,9 +37,46 @@ The supplied PNG brand symbol and Windows app icon are included. Onboarding,
 model installation and high-DPI/accessibility validation remain outstanding.
 
 Choose **Edit reference** in Live workspace to open the book/chapter/verse controls.
+Choose **Mini overlay** in the navigation for the live-service view. On first use,
+select the operator monitor (Windows **Extend**, not Duplicate/mirror). Drag the
+title or resize the edges; use the square button or `…` menu to switch between
+Collapsed, Compact and Expanded. Expanded includes live transcript, automation
+toggles and paged detections with direct live actions. `↗` opens the full workspace.
+The `…` menu can anchor to an open EasyWorship/ProPresenter window; it follows that
+window and hides when the target minimizes or leaves the selected operator screen.
+A Gazely tray icon restores the workspace if the target closes. Position, size,
+mode and monitor choice are saved. The overlay briefly hides during automation
+so it cannot cover controls the adapter needs. Anchoring to ProPresenter does not
+add a ProPresenter presentation adapter; output still uses the configured working
+integration. Mirrored displays or external capture of the whole operator screen
+can include the overlay; use a separate presentation output.
+
 The book field supports both typing with autocomplete and selection
 from all 66 books. Enter chapter/verse (or a range), then **Use edit** to hold the
-validated reference. **Follow speech** returns control to recognition.
+validated reference. **Release scripture** clears the operator hold and active
+scripture so SP can search again.
+
+Selected passage (SP) follows an active scripture: recognized book → chapter →
+verse. Partial speech is visibly provisional; a more complete hypothesis survives an incomplete final as **Unconfirmed**, requiring review before presentation. Confirmed context persists through
+pauses. Quotes keep collecting in Detections without replacing that context.
+A new explicit reference can switch it immediately. Supported transition phrases
+plus a strong literal quotation may switch SP, but that quotation still requires
+operator review before presentation. Similarity alone cannot switch an active SP.
+
+Spoken translation requests such as **“give me that in NLT”** or **“use the
+Message”** update the active complete passage for review. Verse continuations and
+“next verse” retain its requested translation; a new full reference defaults to
+KJV unless another version is explicitly requested. The target translation must
+be installed and mapped in EasyWorship. Gazely's local passage text remains KJV,
+labelled **KJV preview (output: NLT)** when the requested output differs.
+
+Strong quotation alternatives also appear beneath SP in a smaller, muted list.
+Click one to review it as the main passage; the spoken reference remains available
+underneath and continues following speech. Returning to it keeps the other quotes.
+Selecting a quote does not send it live. Speech setup includes an optional
+**Recheck unclear references (experimental)** toggle, off by default; its bounded
+audio buffer stays in memory. Current measurements do not justify changing the
+production speech defaults. See the engineering handoff for results and limits.
 
 For the latest parser and offline quotation work, run
 `EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/Gazely.exe`.
@@ -49,6 +87,15 @@ still opens the preserved baseline. Recognition accuracy remains below target;
 this is an evaluation build, not a production replacement.
 
 ## Test the current Gazely build
+
+The October 12 candidate adds **Speech setup → Nemotron English (experimental)**
+using the locally installed English Q8 model and CPU runtime. It uses one
+continuous streaming session; no audio goes to an online transcription service.
+Whisper remains the default. Experimental streaming engines require manual
+Prepare/Present, including from Mini overlay. Close Gazely and launch
+`RUN_GAZELY.bat` to activate a staged update; switching back to Local AI restores
+the existing Whisper path. Model/runtimes are local evaluation assets, excluded
+from Git; this is not yet a self-contained installer.
 
 ### Build from a Git checkout
 
@@ -98,7 +145,7 @@ are local to each installation. Fresh installations use application defaults.
    menu opens **All history** and **Reset version tracking**.
    Select an entry to hold it for review without sending it. Prepare and
    Present act on that saved reference; incomplete/unconfirmed entries must first
-   be completed or confirmed in the editor. **Follow speech** releases the hold.
+   be completed or confirmed in the editor. **Release scripture** releases the hold.
 
 Offline meaning search is now installed on this machine: compact BGE embeddings
 and a MiniLM reranker search KJV and World English Bible wording, returning canonical
@@ -145,7 +192,7 @@ navigation still require review. A manually entered range remains a range.
 Chapter-only calls such as “Isaiah 51…” stay as incomplete drafts. Recent chapter
 context helps quotation selection; a bounded two-chunk semantic retry can recover
 readings split by transcription. Selecting a history entry or editing a reference
-holds the main passage: use **Follow speech** to release that hold.
+holds the main passage: use **Release scripture** to release that hold.
 
 **Clear** at the top of Detections asks for confirmation, hides existing detections
 and keeps History. Results already in flight cannot repopulate the cleared panel;

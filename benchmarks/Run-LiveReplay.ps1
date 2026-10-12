@@ -1,11 +1,15 @@
 param(
  [Parameter(Mandatory=$true)][string]$Audio,
  [ValidateSet('realtime','accelerated')][string]$Mode='realtime',
- [ValidateSet('base.en','tiny.en','small.en')][string]$Model='base.en',
+ [ValidateSet('base.en','tiny.en','small.en','distil-small.en')][string]$Model='base.en',
  [ValidateRange(0,86400)][int]$LimitSeconds=0,
  [string]$OutputDirectory,
  [switch]$SaveChunks,
  [switch]$NeuralVad,
+ [ValidateSet(0,1,3)][int]$BeamSize=0,
+ [switch]$RawAudio,
+ [switch]$Refinement,
+ [switch]$Retrieval,
  [ValidateRange(0,3000)][int]$EndpointMs=0,
  [ValidateRange(0,30000)][int]$WindowMs=0,
  [switch]$NoiseCheck,
@@ -22,7 +26,7 @@ function Slice([string]$from,[string]$to) {
  $source.Substring($start,$end-$start)
 }
 $core=Slice '    internal sealed class ScriptureDetection' '    internal sealed class AudioLevelMeter'
-$worker=Slice '        private void OnSpeechChunk(SpeechChunk chunk)' '        private void OnPartialTranscript('
+$worker=Slice '        private void OnSpeechChunk(SpeechChunk chunk)' '        private void RequestReferenceRefinement('
 # Instrumentation only: queue policy, reuse, inference and backoff remain production code.
 foreach($marker in @('long started = Stopwatch.GetTimestamp();','return !queued.IsFinal || queued.Session != chunk.Session;','if (!chunk.IsFinal && whisperQueue.Count > 0) return;','                    whisperQueue.RemoveAt(0);','AddLog("No speech text returned for utterance " + chunk.UtteranceId);')) {
  if(([regex]::Matches($worker,[regex]::Escape($marker))).Count -ne 1){throw "Replay instrumentation requires review after source change: $marker"}
@@ -57,7 +61,11 @@ try {
  $output=[IO.Path]::GetFullPath($OutputDirectory)
  if(Test-Path -LiteralPath $output){throw 'Choose a new output directory to preserve earlier evidence.'}
  New-Item -ItemType Directory -Path $output -Force | Out-Null
- $manifest=[ordered]@{mode=$Mode;model=$Model;audio=$audioPath;audio_sha256=(Get-FileHash $audioPath).Hash;source_sha256=(Get-FileHash $sourcePath).Hash;frame_ms=40;eof_silence_ms=600;limit_seconds=$LimitSeconds;save_chunks=[bool]$SaveChunks;presentation='excluded from executable';prompt='production SpeechVocabulary.Prompt';timing_note='Accelerated mode drains after each frame; not live latency or realistic queue pressure. Parser context expiry uses wall time. Realtime includes queue pressure but excludes WinForms UI dispatch and presentation.'}
+ $manifest=[ordered]@{mode=$Mode;model=$Model;audio=$audioPath;audio_sha256=(Get-FileHash $audioPath).Hash;source_sha256=(Get-FileHash $sourcePath).Hash;frame_ms=40;eof_silence_ms=[Math]::Max(800,$EndpointMs+400);limit_seconds=$LimitSeconds;save_chunks=[bool]$SaveChunks;presentation='excluded from executable';prompt='production SpeechVocabulary.Prompt';timing_note='Accelerated mode drains after each frame; not live latency or realistic queue pressure. Parser context expiry uses wall time. Realtime includes queue pressure but excludes WinForms UI dispatch and presentation.'}
+ $manifest['beam_size']=$BeamSize
+ $manifest['normalize_audio']=!$RawAudio
+ $manifest['refinement']=[bool]$Refinement
+ $manifest['retrieval']=[bool]$Retrieval
  $manifest['neural_vad']=[bool]$NeuralVad
  $manifest['endpoint_override_ms']=$EndpointMs
  $manifest['window_override_ms']=$WindowMs
@@ -65,7 +73,7 @@ try {
  $modelPath=Join-Path $app ('models/ggml-'+$Model+'.bin')
  if($Model -eq 'small.en' -and !(Test-Path -LiteralPath $modelPath)){$modelPath=Join-Path $app 'models/ggml-small.en-q5_1.bin'}
  [ordered]@{harness_sha256=(Get-FileHash (Join-Path $PSScriptRoot 'ReplayHarness.cs')).Hash;runner_sha256=(Get-FileHash $PSCommandPath).Hash;model_path=$modelPath;model_sha256=(Get-FileHash $modelPath).Hash;logical_processors=[Environment]::ProcessorCount;os=[Environment]::OSVersion.VersionString}|ConvertTo-Json|Set-Content (Join-Path $output 'provenance.json') -Encoding UTF8
- & $exe $audioPath $output $Mode $Model $LimitSeconds ([bool]$SaveChunks).ToString() ([bool]$NeuralVad).ToString() $EndpointMs $WindowMs
+ & $exe $audioPath $output $Mode $Model $LimitSeconds ([bool]$SaveChunks).ToString() ([bool]$NeuralVad).ToString() $EndpointMs $WindowMs $BeamSize (!$RawAudio).ToString() ([bool]$Refinement).ToString() ([bool]$Retrieval).ToString()
  if($LASTEXITCODE -ne 0){throw "Replay failed ($LASTEXITCODE); inspect retained evidence."}
  $rows=@(Import-Csv (Join-Path $output 'events.tsv') -Delimiter "`t")
  $final=@($rows|Where-Object event -eq 'final')
