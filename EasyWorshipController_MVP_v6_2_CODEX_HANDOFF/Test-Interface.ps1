@@ -1,10 +1,10 @@
-param([Parameter(Mandatory=$true)][string]$OutputDirectory,[int]$Width=1020,[int]$Height=780,[switch]$Light,[switch]$Pronunciation)
+param([Parameter(Mandatory=$true)][string]$OutputDirectory,[int]$Width=1020,[int]$Height=780,[switch]$Light,[switch]$Pronunciation,[switch]$FreeAccess)
 $ErrorActionPreference='Stop'
 $output=[IO.Path]::GetFullPath($OutputDirectory)
 if(Test-Path -LiteralPath $output){throw 'Choose a new output directory to preserve screenshots.'}
 New-Item -ItemType Directory -Path $output | Out-Null
 $source=Get-Content (Join-Path $PSScriptRoot 'EasyWorshipController.cs') -Raw -Encoding UTF8
-$source='using System.Speech.Synthesis;using System.Linq;'+$source
+$source='using System.Speech.Synthesis;using System.Linq;using System.Security.Cryptography;using System.Web.Script.Serialization;using System.Threading.Tasks;'+$source
 $source=$source.Replace('private static void Main()','private static void LaunchApplication()')
 $adapters=Get-Content (Join-Path $PSScriptRoot 'PresentationAdapters.cs') -Raw -Encoding UTF8
 $source += [Environment]::NewLine+($adapters -replace '(?m)^using [^;]+;\r?\n','')
@@ -15,6 +15,9 @@ $recovery=Get-Content (Join-Path $PSScriptRoot 'ChapterPronunciationRecovery.cs'
 $recovery=$recovery.Replace('namespace EasyWorshipControllerMvp','namespace EasyWorshipControllerMvp').Replace('using System.Speech.Synthesis;','')
 $recovery=$recovery.Replace('SpeechSynthesizer','System.Speech.Synthesis.SpeechSynthesizer').Replace('PhonemeReachedEventArgs','System.Speech.Synthesis.PhonemeReachedEventArgs')
 $source += [Environment]::NewLine+($recovery -replace '(?m)^using [^;]+;\r?\n','')
+$cloud=Get-Content (Join-Path $PSScriptRoot 'GazelyCloud.cs') -Raw -Encoding UTF8
+$source += [Environment]::NewLine+($cloud -replace '(?m)^using [^;]+;\r?\n','')
+if($FreeAccess){$source="#define GAZELY_FREE_ACCESS`r`n"+$source}
 $source+=@'
 namespace EasyWorshipControllerMvp {
  internal sealed class CandidateTestAdapter : IPresentationAdapter {
@@ -35,6 +38,8 @@ namespace EasyWorshipControllerMvp {
    Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
    Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
    WorkspacePreferences.PathOverride=Path.Combine(args[0],"preferences-test.txt");
+   GazelyCloudAccess.PathOverride=Path.Combine(args[0],"account-test");
+   WorkspacePreferences.Save(new Dictionary<string,string>{{"onboarding.shown","True"}});
    using(MainForm form=new MainForm()) {
     form.Size=new Size(int.Parse(args[1]),int.Parse(args[2]));
     GazelyTheme.Dark=!bool.Parse(args[3]);GazelyTheme.Apply(form);
@@ -42,11 +47,11 @@ namespace EasyWorshipControllerMvp {
     form.Location=new Point(-20000,-20000);form.Show();Application.DoEvents();
     IntPtr handle=form.Handle;
     TabControl tabs=FindTabs(form);
-    if(tabs==null || tabs.TabCount!=7) throw new Exception("Missing application pages");
+    if(tabs==null || tabs.TabCount!=8) throw new Exception("Missing application pages");
     Size requestedSize=form.Size;
     foreach(Size size in new Size[]{new Size(1920,1080),new Size(1280,980),new Size(980,700),requestedSize})
     {
-     form.Size=size;tabs.SelectedIndex=1;form.PerformLayout();Application.DoEvents();
+     form.Size=size;tabs.SelectedTab=tabs.TabPages["workspace"];form.PerformLayout();Application.DoEvents();
      if(tabs.Region!=null)throw new Exception("Tab clipping region must not survive resizing");
      Control panes=form.Controls.Find("WorkspacePanes",true)[0];
      Control transcript=form.Controls.Find("LiveTranscriptCard",true)[0];
@@ -74,7 +79,7 @@ namespace EasyWorshipControllerMvp {
      Control[] frames=tabs.TabPages[i].Controls.Find("CenteredPageContent",true);
      if(frames.Length!=1)throw new Exception("Missing shared page frame: "+i);
      Control frame=frames[0];
-     if(frame.Width!=(i==1?frame.Parent.ClientSize.Width:1440) || Math.Abs(frame.Left-(frame.Parent.ClientSize.Width-frame.Right))>1)throw new Exception("Page is not centered: "+i);
+     if(frame.Width!=(tabs.TabPages[i].Name=="workspace"?frame.Parent.ClientSize.Width:1440) || Math.Abs(frame.Left-(frame.Parent.ClientSize.Width-frame.Right))>1)throw new Exception("Page is not centered: "+i);
      using(Bitmap bitmap=new Bitmap(form.Width,form.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,form.Size));bitmap.Save(Path.Combine(args[0],"wide-page-"+i+".png"),System.Drawing.Imaging.ImageFormat.Png);}
     }
     form.Size=requestedSize;Application.DoEvents();
@@ -89,17 +94,55 @@ namespace EasyWorshipControllerMvp {
     }
     // Exercise the actual UI final-result callback with the reported split reference.
     System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+    using(Form msaaForm=new Form()) {
+      msaaForm.ShowInTaskbar=false;msaaForm.StartPosition=FormStartPosition.Manual;msaaForm.Location=new Point(-20000,-20000);
+      ListBox versions=new ListBox();versions.Items.Add("KJV");versions.Items.Add("MSG");msaaForm.Controls.Add(versions);
+      msaaForm.Show();versions.SelectedIndex=0;Application.DoEvents();
+      var msaa=new EasyWorshipAutomation();
+      string msaaSelected=(string)typeof(EasyWorshipAutomation).GetMethod("ReadMsaaVersion",flags).Invoke(msaa,new object[]{versions.Handle});
+      if(msaaSelected!="KJV")throw new Exception("MSAA selected-child readback failed on a standard selected list: "+msaaSelected);
+    }
     Control[] navigation=form.Controls.Find("GazelyNavigation",true);
-    if(navigation.Length!=1 || navigation[0].Controls.Count!=9 || navigation[0].Controls.Find("OpenMiniOverlay",true).Length!=1)throw new Exception("Navigation controls missing");
+    if(navigation.Length!=1 || navigation[0].Controls.Count!=10 || navigation[0].Controls.Find("OpenMiniOverlay",true).Length!=1)throw new Exception("Navigation controls missing");
     foreach(Control button in navigation[0].Controls)
     {
+     if(!button.Visible)continue;
      if(button.Right>navigation[0].ClientSize.Width || button.Bottom>navigation[0].ClientSize.Height)throw new Exception("Navigation clipped: "+button.Text);
      if(button.Width<TextRenderer.MeasureText(button.Text,button.Font).Width+20)throw new Exception("Navigation label clipped: "+button.Text);
     }
     Console.WriteLine("PASS: all navigation controls fit the window without clipped labels.");
-    int[] pageOrder={1,0,4,3,2,6,5};
-    for(int i=0;i<pageOrder.Length;i++){((Button)navigation[0].Controls[i]).PerformClick();Application.DoEvents();if(tabs.SelectedIndex!=pageOrder[i])throw new Exception("Navigation opens wrong page");}
-    tabs.SelectedIndex=1;Application.DoEvents();
+    string[] pageOrder={"workspace","speech","integrations","versions","howto","account","history","diagnostics"};
+    for(int i=0;i<pageOrder.Length;i++){
+      Button target=(Button)navigation[0].Controls[i];
+      if(pageOrder[i]=="account" && GazelyCloudBuild.FreeAccess){if(target.Visible)throw new Exception("Account navigation remains visible in free release");continue;}
+      target.PerformClick();Application.DoEvents();if(tabs.SelectedTab.Name!=pageOrder[i])throw new Exception("Navigation opens wrong page");
+    }
+    if(tabs.TabPages["versions"].Controls.Find("SetupBibleList",true).Length!=1)throw new Exception("Guided Bible version setup is missing");
+    bool guideSeen=false;
+    var firstRun=WorkspacePreferences.Load();firstRun.Remove("onboarding.shown");WorkspacePreferences.Save(firstRun);
+    using(var guideTimer=new System.Windows.Forms.Timer()){
+     guideTimer.Interval=30;guideTimer.Tick+=delegate{
+      foreach(Form open in Application.OpenForms)if(open!=form && open.Text=="Welcome to Gazely"){
+       guideSeen=true;using(Bitmap image=new Bitmap(open.Width,open.Height)){open.DrawToBitmap(image,new Rectangle(Point.Empty,open.Size));image.Save(Path.Combine(args[0],"first-run-guide.png"));}
+       ((Button)open.Controls.Find("ExploreWorkspace",true)[0]).PerformClick();guideTimer.Stop();break;
+      }
+     };guideTimer.Start();typeof(MainForm).GetMethod("ShowFirstRunGuide",flags).Invoke(form,null);
+    }
+    if(!guideSeen || tabs.SelectedTab.Name!="workspace" || WorkspacePreferences.Load()["onboarding.shown"]!="True")throw new Exception("First-run guide did not open and return to workspace");
+    bool bibleDialogSeen=false;
+    using(var bibleTimer=new System.Windows.Forms.Timer()){
+     bibleTimer.Interval=30;bibleTimer.Tick+=delegate{
+      foreach(Form open in Application.OpenForms)if(open!=form && open.Text=="Set up Bible versions"){
+       bibleDialogSeen=true;TextBox list=(TextBox)open.Controls.Find("BibleCodes",true)[0];
+       if(!list.Multiline || open.AcceptButton!=null)throw new Exception("Enter would submit the Bible list instead of adding a line");
+       if(Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"Softouch","EasyWorship.v7","Plugins","Bibles")) && list.Lines.Length==0)throw new Exception("Local Bible discovery did not prefill the setup list");
+       using(Bitmap image=new Bitmap(open.Width,open.Height)){open.DrawToBitmap(image,new Rectangle(Point.Empty,open.Size));image.Save(Path.Combine(args[0],"bible-setup.png"));}
+       open.Close();bibleTimer.Stop();break;
+      }
+     };bibleTimer.Start();typeof(MainForm).GetMethod("ShowVersionCatalogueSetup",flags).Invoke(form,null);
+    }
+    if(!bibleDialogSeen)throw new Exception("Bible setup dialog did not open");
+    tabs.SelectedTab=tabs.TabPages["workspace"];Application.DoEvents();
     Button workspaceOptions=(Button)form.Controls.Find("WorkspaceOptions",true)[0];
     ToolStripItem reset=workspaceOptions.ContextMenuStrip.Items[1];
     if(!workspaceOptions.Visible || reset.Name!="WorkspaceResetVersion")throw new Exception("Workspace reset menu missing");
@@ -107,16 +150,21 @@ namespace EasyWorshipControllerMvp {
     BibleVersionPosition position=(BibleVersionPosition)typeof(EasyWorshipAutomation).GetField("versionPosition",flags).GetValue(automation);
     position.Configure(9,"test map");position.Bind("test process");
     reset.PerformClick();
-    if(automation.GetVersionStateSummary()!="unknown")throw new Exception("Workspace reset did not invalidate version tracking");
+    if(!automation.GetVersionStateSummary().Contains("unverified"))throw new Exception("Workspace reset did not invalidate version tracking");
     Console.WriteLine("PASS: workspace version reset works while Present page is hidden; no adapter commands sent.");
-    tabs.SelectedIndex=4;Application.DoEvents();
+    tabs.SelectedTab=tabs.TabPages["speech"];Application.DoEvents();
+    ComboBox audioDevices=(ComboBox)typeof(MainForm).GetField("audioDeviceCombo",flags).GetValue(form);
+    Button startListening=(Button)typeof(MainForm).GetField("startListeningButton",flags).GetValue(form);
+    var audioWait=System.Diagnostics.Stopwatch.StartNew();
+    while(audioDevices.Items.Count==0 && audioWait.ElapsedMilliseconds<5000){Application.DoEvents();System.Threading.Thread.Sleep(20);}
+    if(audioDevices.Items.Count>0 && !startListening.Enabled)throw new Exception("Start listening stayed disabled after audio devices loaded");
     ComboBox engine=(ComboBox)typeof(MainForm).GetField("speechEngineCombo",flags).GetValue(form);
     ComboBox model=(ComboBox)typeof(MainForm).GetField("whisperModelCombo",flags).GetValue(form);
     ComboBox recognizer=(ComboBox)typeof(MainForm).GetField("recognizerCombo",flags).GetValue(form);
-    engine.SelectedIndex=1;Application.DoEvents();if(!recognizer.Visible || model.Visible)throw new Exception("Windows recognizer selector broke");
-    if(engine.Items.Count!=5 || !engine.Items[4].ToString().StartsWith("Nemotron"))throw new Exception("Nemotron selector missing");
-    engine.SelectedIndex=4;Application.DoEvents();
-    if(model.Visible || recognizer.Visible || ((CheckBox)typeof(MainForm).GetField("autoLiveCheck",flags).GetValue(form)).Enabled)throw new Exception("Experimental streaming settings exposed automatic presentation or Whisper controls");
+    engine.SelectedIndex=1;Application.DoEvents();
+    if(engine.Items.Count!=2 || ((SpeechEngineChoice)engine.Items[1]).Id!="nemotron")throw new Exception("Nemotron selector missing");
+    engine.SelectedIndex=1;Application.DoEvents();
+    if(model.Visible || recognizer.Visible || !((CheckBox)typeof(MainForm).GetField("autoLiveCheck",flags).GetValue(form)).Enabled)throw new Exception("Accurate engine controls are incorrect");
     engine.SelectedIndex=0;Application.DoEvents();if(!model.Visible || recognizer.Visible)throw new Exception("Local model selector broke");
     TextBox manualInput=(TextBox)typeof(MainForm).GetField("scriptureTextBox",flags).GetValue(form);
     if(manualInput.Width>350 || engine.Width>270)throw new Exception("Compact input sizing regressed");
@@ -130,7 +178,7 @@ namespace EasyWorshipControllerMvp {
     Label reference=(Label)typeof(MainForm).GetField("detectedReferenceLabel",flags).GetValue(form);
     if(reference.Text!="Genesis 49:3") throw new Exception("Spoken range did not start at first verse: "+reference.Text);
     typeof(MainForm).GetField("audioListening",flags).SetValue(form,false);
-    tabs.SelectedIndex=1;Application.DoEvents();
+    tabs.SelectedTab=tabs.TabPages["workspace"];Application.DoEvents();
     using(Bitmap bitmap=new Bitmap(form.Width,form.Height)) {
      form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,form.Size));
      bitmap.Save(Path.Combine(args[0],"split-reference-regression.png"),System.Drawing.Imaging.ImageFormat.Png);
@@ -142,7 +190,7 @@ namespace EasyWorshipControllerMvp {
      SourceText="Seek ye first the kingdom and all these other things shall be added unto you",
      MatchedText="But seek ye first the kingdom of God, and his righteousness; and all these things shall be added unto you." };
     typeof(MainForm).GetMethod("ShowDetection",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).Invoke(form,new object[]{quote});
-    tabs.SelectedIndex=1;Application.DoEvents();
+    tabs.SelectedTab=tabs.TabPages["workspace"];Application.DoEvents();
     using(Bitmap bitmap=new Bitmap(form.Width,form.Height)) {
      form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,form.Size));
      bitmap.Save(Path.Combine(args[0],"quotation-fixture.png"),System.Drawing.Imaging.ImageFormat.Png);
@@ -157,14 +205,14 @@ namespace EasyWorshipControllerMvp {
     provisional.Verse=12;record.Invoke(form,new object[]{provisional,true,"fixture:one"});
     record.Invoke(form,new object[]{provisional,false,"fixture:one"});provisional.Verse=99;
     if(history.Items.Count!=earlierRows+1 || ((ScriptureDetection)history.Items[0].Tag).Verse!=12 || history.Items[0].SubItems[4].Text!="Final suggestion") throw new Exception("History revision or snapshot isolation failed");
-    tabs.SelectedIndex=6;history.Items[1].Selected=true;Application.DoEvents();
+    tabs.SelectedTab=tabs.TabPages["history"];history.Items[1].Selected=true;Application.DoEvents();
     using(Bitmap bitmap=new Bitmap(form.Width,form.Height)) {
      form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,form.Size));
      bitmap.Save(Path.Combine(args[0],"history-fixture.png"),System.Drawing.Imaging.ImageFormat.Png);
     }
     Console.WriteLine("PASS: history retains final suggestions, updates provisional rows, uses quotation match scores and snapshots evidence.");
     FlowLayoutPanel recent=(FlowLayoutPanel)typeof(MainForm).GetField("recentHistory",flags).GetValue(form);
-    if(recent==null || !tabs.TabPages[1].Contains(recent.Parent))throw new Exception("Recent history is missing from Live workspace");
+    if(recent==null || !tabs.TabPages["workspace"].Contains(recent.Parent))throw new Exception("Recent history is missing from Live workspace");
     System.Reflection.MethodInfo selectHistory=typeof(MainForm).GetMethod("SelectHistoryReference",flags);
     System.Reflection.MethodInfo canPresent=typeof(MainForm).GetMethod("HistoryCanPresent",flags);
     ListViewItem historyItem=history.Items[0];int originalCount=history.Items.Count;
@@ -197,7 +245,7 @@ namespace EasyWorshipControllerMvp {
     verse.Text="999";typeof(MainForm).GetMethod("ApplyDraft",flags).Invoke(form,null);
     if(prepare.Enabled)throw new Exception("Invalid verse enabled presentation");
     verse.Text="4";typeof(MainForm).GetMethod("ApplyDraft",flags).Invoke(form,null);
-    tabs.SelectedIndex=1;Application.DoEvents();
+    tabs.SelectedTab=tabs.TabPages["workspace"];Application.DoEvents();
     using(Bitmap bitmap=new Bitmap(form.Width,form.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,form.Size));bitmap.Save(Path.Combine(args[0],"operator-draft.png"),System.Drawing.Imaging.ImageFormat.Png);}
     book.SelectedItem="Titus";chapter.Text="2";verse.Text="11";typeof(MainForm).GetMethod("ApplyDraft",flags).Invoke(form,null);
     held=(ScriptureDetection)typeof(MainForm).GetField("lastDetection",flags).GetValue(form);
@@ -219,7 +267,7 @@ namespace EasyWorshipControllerMvp {
      if(reference.Text!="Possible Genesis 49")throw new Exception("Pronunciation candidate failed to reach scripture window: "+reference.Text);
      Button present=(Button)typeof(MainForm).GetField("liveDetectedButton",flags).GetValue(form);
      if(present.Enabled)throw new Exception("Unresolved verses enabled presentation");
-     tabs.SelectedIndex=1;Application.DoEvents();
+     tabs.SelectedTab=tabs.TabPages["workspace"];Application.DoEvents();
      using(Bitmap bitmap=new Bitmap(form.Width,form.Height)) {
       form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,form.Size));
       bitmap.Save(Path.Combine(args[0],"pronunciation-recovery.png"),System.Drawing.Imaging.ImageFormat.Png);
@@ -227,7 +275,7 @@ namespace EasyWorshipControllerMvp {
      typeof(MainForm).GetField("audioListening",flags).SetValue(form,false);
      Console.WriteLine("PASS: reported phrase renders Possible Genesis 49 with unresolved verses and presentation disabled.");
     }
-    tabs.SelectedIndex=1;Application.DoEvents();
+    tabs.SelectedTab=tabs.TabPages["workspace"];Application.DoEvents();
     typeof(MainForm).GetField("audioListening",flags).SetValue(form,true);
     int session=(int)typeof(MainForm).GetField("listeningSession",flags).GetValue(form);long revision=(long)typeof(MainForm).GetField("interpretationRevision",flags).GetValue(form);
     string heldReference=reference.Text;
@@ -326,7 +374,7 @@ namespace EasyWorshipControllerMvp {
       if(versionDetection.ReferenceText!=step[1] || (versionDetection.TranslationExplicit?versionDetection.Translation:"KJV")!=step[2])throw new Exception("Active translation mismatch: "+step[0]);
       if(step[2]!="KJV" && !((Label)typeof(MainForm).GetField("verseExcerpt",flags).GetValue(form)).Text.StartsWith("KJV preview (output: "+step[2]+")"))throw new Exception("Preview mislabels output translation");
       int beforeVersion=fake.Calls;
-      typeof(MainForm).GetMethod("RunDetected",flags).Invoke(form,new object[]{true});quoteWait.Restart();
+      typeof(MainForm).GetMethod("RunDetected",flags).Invoke(form,new object[]{true,false});quoteWait.Restart();
       while((fake.Calls==beforeVersion || (bool)typeof(MainForm).GetField("presentationRunning",flags).GetValue(form)) && quoteWait.ElapsedMilliseconds<4000){Application.DoEvents();System.Threading.Thread.Sleep(10);}
       if(fake.Calls!=beforeVersion+1 || fake.Last.Version!=step[2] || fake.Last.Scripture.ReferenceText!=step[1])throw new Exception("Adapter received wrong translation/reference");
     }
@@ -427,16 +475,33 @@ namespace EasyWorshipControllerMvp {
     ((Button)alternatives.Controls.Cast<Control>().First(c=>c.Text.Contains("Leviticus 6:13"))).PerformClick();Application.DoEvents();
     if(reference.Text!="Leviticus 6:13" || active.Current.Verse!=0 || alternatives.Controls.Find("RestoreSpokenAnchor",true).Length!=1)throw new Exception("Quote promotion lost spoken anchor");
     final.Invoke(form,new object[]{"Leviticus chapter six verse eleven",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
-    if(reference.Text!="Leviticus 6:13" || active.Current.ReferenceText!="Leviticus 6:11")throw new Exception("Spoken anchor did not advance independently of operator quote selection");
+    if(reference.Text!="Leviticus 6:11" || active.Current.ReferenceText!="Leviticus 6:11" || !alternatives.Controls.Cast<Control>().Any(c=>c.Text.Contains("Leviticus 6:13")))throw new Exception("Complete spoken anchor did not replace selected quote while retaining it below");
+    final.Invoke(form,new object[]{"Leviticus chapter six",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Leviticus 6:11")throw new Exception("Later incomplete speech erased complete spoken anchor");
     using(Bitmap bitmap=new Bitmap(form.Width,form.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,form.Size));bitmap.Save(Path.Combine(args[0],"passage-alternatives.png"),System.Drawing.Imaging.ImageFormat.Png);}
     Size compactSize=form.Size;form.Size=new Size(1920,1080);Application.DoEvents();
     using(Bitmap bitmap=new Bitmap(form.Width,form.Height)){form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,form.Size));bitmap.Save(Path.Combine(args[0],"passage-alternatives-wide.png"),System.Drawing.Imaging.ImageFormat.Png);}
     form.Size=compactSize;Application.DoEvents();
+    ((Button)alternatives.Controls.Cast<Control>().First(c=>c.Text.Contains("Leviticus 6:13"))).PerformClick();Application.DoEvents();
     ((Button)alternatives.Controls.Find("RestoreSpokenAnchor",true)[0]).PerformClick();Application.DoEvents();
     if(reference.Text!="Leviticus 6:11" || !alternatives.Controls.Cast<Control>().Any(c=>c.Text.Contains("Leviticus 6:13")) || !alternatives.Controls.Cast<Control>().Any(c=>c.Text.Contains("Matthew 6:33")) || fake.Calls!=calls)throw new Exception("Returning to spoken anchor lost alternate quote or presented unexpectedly");
+    ((Button)alternatives.Controls.Cast<Control>().First(c=>c.Text.Contains("Leviticus 6:13"))).PerformClick();Application.DoEvents();
+    final.Invoke(form,new object[]{"luke chapter one verse seventeen that's what they call the spirit of josh man made perfect",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Luke 1:17" || active.Current.ReferenceText!="Luke 1:17" || !alternatives.Controls.Cast<Control>().Any(c=>c.Text.Contains("Leviticus 6:13")) || fake.Calls!=calls)throw new Exception("Reported Luke 1:17 transcript did not replace selected quote safely: main="+reference.Text+" anchor="+active.Current.ReferenceText+" oldQuote="+alternatives.Controls.Cast<Control>().Any(c=>c.Text.Contains("Leviticus 6:13"))+" adapterCalls="+fake.Calls+" baseline="+calls);
+    var show=typeof(MainForm).GetMethod("ShowDetection",flags);
+    typeof(MainForm).GetField("operatorDraft",flags).SetValue(form,false);
+    show.Invoke(form,new object[]{new ScriptureDetection{Book="Mark",Chapter=9,Verse=23,EvidenceKind="operator",RequiresReview=true,SourceText="Operator selected Mark 9:23"}});
+    typeof(MainForm).GetField("operatorDraft",flags).SetValue(form,true);
+    final.Invoke(form,new object[]{"John chapter three verse sixteen",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="John 3:16" || !alternatives.Controls.Cast<Control>().Any(c=>c.Text.Contains("Previous passage") && c.Text.Contains("Mark 9:23")) || fake.Calls!=calls)throw new Exception("Clear spoken anchor did not replace operator-selected passage and retain it below");
+    final.Invoke(form,new object[]{"hebrews chapter eleven",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    final.Invoke(form,new object[]{"and verse thirty two",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Hebrews 11:32")throw new Exception("Split Hebrews 11:32 did not reach the main passage: "+reference.Text);
+    final.Invoke(form,new object[]{"daniel chapter two and verse forty six",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Daniel 2:46" || active.Current.ReferenceText!="Daniel 2:46")throw new Exception("Spoken Daniel 2:46 stayed incomplete or only reached Detections: "+reference.Text);
     release.PerformClick();Application.DoEvents();
     active.Confirm(new ScriptureDetection{Book="Leviticus",EvidenceKind="draft",RequiresReview=true});
-    Console.WriteLine("PASS: strong quotes coexist below SP; selection swaps with spoken anchor, further speech updates anchor, other quotes survive.");
+    Console.WriteLine("PASS: complete spoken anchor including reported Luke 1:17 replaces selected quote; incomplete speech keeps verse and earlier quote remains selectable.");
     var recovery=(ReferenceRefinement)typeof(MainForm).GetField("referenceRefinement",flags).GetValue(form);
     var ring=new RecentSpeechAudio();ring.Append(new byte[32000]);
     recovery.UpdateIntent(active.Current.ReferenceText,session);recovery.Observe(1000,100);
@@ -461,6 +526,17 @@ namespace EasyWorshipControllerMvp {
     var miniType=typeof(MainForm).GetNestedType("MiniOverlay",System.Reflection.BindingFlags.NonPublic);
     var mini=(Form)Activator.CreateInstance(miniType,new object[]{form});
     typeof(MainForm).GetField("miniOverlay",flags).SetValue(form,mini);
+    bool miniGuideSeen=false;miniType.GetField("monitorName",flags).SetValue(mini,"MISSING-TEST-MONITOR");
+    using(var miniGuideTimer=new System.Windows.Forms.Timer()){
+     miniGuideTimer.Interval=30;miniGuideTimer.Tick+=delegate{
+      foreach(Form open in Application.OpenForms)if(open!=form && open!=mini && open.Text=="Meet Gazely Mini"){
+       miniGuideSeen=true;using(Bitmap image=new Bitmap(open.Width,open.Height)){open.DrawToBitmap(image,new Rectangle(Point.Empty,open.Size));image.Save(Path.Combine(args[0],"mini-guide.png"));}
+       ((Button)open.Controls.Find("CancelMini",true)[0]).PerformClick();miniGuideTimer.Stop();break;
+      }
+     };miniGuideTimer.Start();
+     if((bool)miniType.GetMethod("EnsureOperatorMonitor").Invoke(mini,null))throw new Exception("Canceled Mini setup selected a monitor");
+    }
+    if(!miniGuideSeen)throw new Exception("Mini setup guide did not open");
     miniType.GetField("monitorName",flags).SetValue(mini,Screen.FromControl(form).DeviceName);
     miniType.GetMethod("Open").Invoke(mini,null);Application.DoEvents();
     if(!mini.TopMost || mini.FormBorderStyle!=FormBorderStyle.None || mini.ShowInTaskbar)throw new Exception("Overlay window styles changed");
@@ -469,6 +545,10 @@ namespace EasyWorshipControllerMvp {
     typeof(MainForm).GetMethod("ShowDetection",flags).Invoke(form,new object[]{new ScriptureDetection{Book="Genesis",Chapter=49,Verse=3,RequiresReview=true,Confidence=.92}});
     foreach(string state in new[]{"Collapsed","Compact","Expanded"}){
       miniType.GetMethod("SetMode",flags).Invoke(mini,new object[]{state});Application.DoEvents();
+      if(state!="Collapsed"){
+       var miniVerse=(Label)miniType.GetField("versePreview",flags).GetValue(mini);
+       if(!miniVerse.Visible || miniVerse.Text!=((Label)typeof(MainForm).GetField("verseExcerpt",flags).GetValue(form)).Text || !miniVerse.Text.StartsWith("KJV"))throw new Exception("Mini lacks the selected scripture text preview: state="+state+" visible="+miniVerse.Visible+" mini="+miniVerse.Text+" workspace="+((Label)typeof(MainForm).GetField("verseExcerpt",flags).GetValue(form)).Text);
+      }
       using(var bitmap=new Bitmap(mini.Width,mini.Height)){mini.DrawToBitmap(bitmap,new Rectangle(Point.Empty,mini.Size));bitmap.Save(Path.Combine(args[0],"overlay-"+state+".png"));}
       if(!Screen.FromControl(form).WorkingArea.Contains(mini.Bounds))throw new Exception("Overlay escaped operator monitor");
     }
@@ -542,7 +622,7 @@ namespace EasyWorshipControllerMvp {
 }
 '@
 $refs=@()
-foreach($name in @('System','System.Core','System.Drawing','System.Windows.Forms','System.Speech','WindowsBase','UIAutomationClient','UIAutomationTypes')) {
+foreach($name in @('System','System.Core','System.Drawing','System.Windows.Forms','System.Speech','System.Security','System.Web.Extensions','WindowsBase','UIAutomationClient','UIAutomationTypes')) {
  Add-Type -AssemblyName $name
  $refs+=([AppDomain]::CurrentDomain.GetAssemblies()|Where-Object {$_.GetName().Name -eq $name}|Select-Object -First 1).Location
 }

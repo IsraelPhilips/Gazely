@@ -1,5 +1,112 @@
 # Gazely — next execution phase
 
+## Current continuation priority — 15 October 2026
+
+### Selected passage and Mini follow-up
+
+The candidate now promotes a new complete spoken reference over an
+operator-selected quotation, retains the quote below, and shows scripture text
+in Mini compact and expanded views. Fresh, mapped EasyWorship library selection
+readback now permits a direct relative version move or no move when already
+selected. Unknown selection keeps the safe re-anchor/manual path and pauses
+automatic output. Complete the final Luke transcript regression, candidate
+build and short checks. Per the user's latest request, defer a new installable
+package and public upload.
+
+### Onboarding and local discovery revision
+
+The candidate now reads modern EasyWorship Bible plugin header abbreviations
+read-only, proposes their code-sorted order, and asks the user to compare all rows
+with the visible Scriptures library before saving. On this PC, the 24 readable
+headers exactly match the 24 screenshot rows; 12 older-format files do not. This
+does not establish visibility on other profiles or prove current selection.
+First launch has a guide and a persistent How to tab, including Mini; saving the
+reviewed map returns to Live workspace. The asynchronous audio inventory refreshes
+Start Listening's enabled state. Candidate/UI/adapter checks and an isolated
+offline installer smoke test passed. The new r3 installer is local and ready for
+user evaluation; r2 and production/rollback builds remain intact. No downloads
+or public upload occurred. Live EasyWorship selection and target 8 GB behavior
+remain unverified.
+
+### Fast initial public release decision — 15 October
+
+The self-contained offline installer has now been built and smoke tested from
+an isolated install path. It is stored locally at
+`releases/Gazely-Setup-20261015-r2.exe`; publishing or hosting has not occurred.
+The 1.0 GB unsigned installer includes both speech engines and local scripture
+search. Its first launch creates an empty per-installation Bible map. The
+remaining initial-release decision is whether to publish this tested build with
+the disclosed 8 GB and EasyWorship readback limits.
+
+The user will exercise the product after release and provide feedback. The
+two-hour endurance run is waived for this first public build; retain the two
+completed 30-minute paced replay results and disclose that target 8 GB hardware
+and live EasyWorship readback have not been verified. Do not describe the
+waiver as a test pass. Finish short candidate build, UI, adapter, offline package
+and first-run checks before staging. Automatic output remains paused wherever
+the selected EasyWorship Bible cannot be read freshly; manual Present remains
+available. React and signup/Supabase remain deferred.
+
+Other users' version lists cannot inherit LIGHT NATION_1's 24-row map. A fresh
+Gazely installation creates an unmapped local file, then proposes codes from
+read-only local Bible headers. The user compares them with the complete visible
+EasyWorship Scriptures library and confirms the order before Gazely assigns
+contiguous indexes. Fall back to manual entry if discovery is incomplete. Recheck
+after profile or catalogue changes. Never infer the list from filenames alone or
+a live slide. A mapped index never proves the current selected translation.
+
+Continue the stable Windows MVP candidate described in ENGINEERING_HANDOFF.md;
+the dated phase notes below are historical, not the current release status.
+**No downloads are currently authorized.** Use installed models/runtime files only.
+Do not stage the candidate until its release checks pass. React and signup remain
+deferred; preserve existing working behavior and rollback builds.
+
+### EasyWorship translation discovery and selection
+
+15 October evidence update: overlapping screenshots show all 24 local installed
+rows, from AMP through YOR, in abbreviation order; “More Available…” follows the
+last row. The ignored LIGHT NATION_1 map records indexes 0–23. MSG in the library
+and Trans… results column is separate from the KJV live slide. The running process
+currently has no accessible top-level window in this session, so dynamic catalogue
+and results freshness verification remain open. Automatic output stays paused
+without fresh library readback immediately before its action.
+
+The completed gated 30-minute paced replay covered all audio with no adapter
+actions and reduced retained candidates from 282 to 74, including paraphrase
+rows from 240 to 32. Explicit and lexical quotation counts were unchanged.
+Peak summed working sets were 1,934,802,944 bytes on this PC, above the initial
+memory budget; target 8 GB hardware and held-out real audio remain untested.
+The fast initial-release decision above replaces the two-hour requirement;
+unverified live readback keeps automatic output paused and must be disclosed.
+
+The first screenshot shows AMP through NLT; the second overlaps KJV through NLT
+and continues PIG, RST, RVA, TLV, TPT, WB, YOR, then “More Available…”. Use
+these displayed abbreviations as this profile's 24-row ordering evidence rather
+than expanded Bible names or resource filenames.
+
+1. Reconcile the screenshot-verified 24-row catalogue against read-only live
+   library/control inspection when EasyWorship exposes its window. Installed
+   resource files are hints only; do not infer availability from filenames.
+2. Check code-sorted order, profile, catalogue changes and sort settings before
+   using indexes on a different installation or after an update.
+3. Probe the scripture results table's **Trans…** column as another read-only source
+   for current library translation, alongside the highlighted library row. In the
+   screenshot, both show MSG while the live slide remains KJV. Never use live-slide
+   translation as proof of the library selection.
+4. Validate table evidence against stale results, empty results, mixed translations,
+   collapsed/offscreen controls, DPI and manual changes. Prefer accessible text;
+   evaluate cropped library/table OCR only if already available locally and necessary.
+   No new downloads and no EasyWorship file/database/configuration modifications.
+5. Cache the verified catalogue by process/profile and catalogue revision. Recheck
+   current selection before output, invalidate uncertain observations, skip version
+   navigation when already verified, and verify after a required move.
+6. Retain calibrated manual fallback. Alphabetical order establishes positions, not
+   current selection; automatic output stays paused when translation is unverifiable.
+
+Remaining sequence: finish reliability/endurance validation; improve detection
+relevance and test automatic selection gates; finish Mini/package validation;
+stage only a passing build. See the handoff for concrete files, commands and gaps.
+
 Created: 30 September 2026. Status: Phase 1 replay infrastructure and first
 real-time baseline delivered; user-corrected transcript received and scored.
 Phase 2 speech changes are in progress; timestamped labels and held-out evaluation
@@ -560,3 +667,86 @@ Maintain this checklist as work lands:
 - [ ] Brand-led design system and clickable full-workflow prototypes
 - [ ] Complete modern interface, accessibility and visual verification
 - [ ] 8 GB validation, packaged evaluation build and release instructions
+
+## Account, subscription and portal extension (approved 2026-10-15)
+
+**2026-10-17 latest launch policy:** A syntactically valid email entry is
+required and recorded in Supabase before first use. It is unverified; OTP and
+Google sign-in are deferred. Free access includes unlimited listening,
+automation and Mini. Church ownership and device limits cannot be enforced
+until verified authentication is enabled. The server billing switch defaults
+off; checkout is blocked. Pricing and Paystack remain prepared for later.
+
+- [x] Test Supabase project connected; versioned account, device, usage and
+  billing migrations applied; RLS/client-grant and state-machine SQL checks pass.
+- [x] Authenticated Edge API and signature-checked Paystack webhook deployed
+  to **test**; unauthenticated/forged requests return 401.
+- [x] Portal source and offline Windows licence client added; local build,
+  UI regression and lease-verifier tests pass.
+- [x] Free-launch server switch, fresh allowance anchor for future billing,
+  full-access signed lease and hidden portal billing controls pass local/SQL
+  checks on the test project.
+- [x] Test-project private unverified-email table and public intake endpoint;
+  candidate requires a confirmed submission before first use and stores it
+  locally for offline return. Candidate gate and protected reload passed.
+- [ ] Production Supabase project, email-intake migration/function, production
+  public-key candidate and isolated installer check. No installer built yet.
+- [x] Production project created and private email table migrated; offline
+  speech checks and interface suite passed. Production intake deployment was
+  blocked by automatic approval review over public-write abuse risk. Decide
+  the intake protection before building the public installer.
+- [ ] Production email OTP, signing secrets, portal deployment and authenticated
+  free activation/offline-use checks when verified accounts launch later.
+- [ ] Configure rotated Paystack test key, NGN plans, signing secrets, portal
+  origin and OTP email; execute real test checkout/webhook, usage and offline
+  desktop-to-portal acceptance flows **before paid activation**, after the
+  free launch.
+- [ ] Connect and deploy Vercel portal from the existing GitHub repo after
+  source review/push; create separate production Supabase project.
+- [ ] Production SMTP/domain, signing key, payment verification, cloud-enforced
+  Windows build, isolated installer smoke test and code signing. The current
+  installer is not the new public subscription release.
+
+**Latest free release decision (2026-10-17):** Remove account/email gate for
+now. Package the local, fully offline candidate with no Supabase calls. Keep
+Supabase Auth, pricing, Paystack and portal work in source for a later release.
+The free candidate and interface suite pass; build a separate unsigned
+installer for review, preserving all earlier installers. Signing can follow
+after Gazely obtains a publisher certificate.
+
+- [x] Offline free candidate built and verified without an account or backend URL.
+- [x] Installed speech packages, full interface suite, release archive and
+  isolated unsigned-installer smoke test passed. Installer:
+  `releases/Gazely-Setup-Free-20261017.exe`.
+- [ ] Publisher code signing and broader hardware/live-service feedback before
+  describing this build as a fully validated public release.
+
+**2026-10-17 follow-up:** Per-user uninstall registration, same-session manual
+Bible-version navigation and spoken-anchor override after operator selection
+are implemented in the candidate. Navigation, adapter and free interface checks
+passed. A separate unsigned `Gazely-Setup-Free-20261017-r2.exe` passed isolated
+installation; older installers remain intact. Confirm actual EasyWorship selected
+row and live output on an exposed operator window before treating that path as
+live verified.
+
+**Latest operator feedback:** The earlier automatic EasyWorship stall was on
+the previous install; r2/r3 automatic Live needs a mapped Bible order and a
+real operator test. Daniel 2:46 with spoken `and verse` now reaches the main SP
+panel, verified by parser and interface tests. Split Hebrews 11:32 reaches SP
+for review; its contextual continuation is not yet automatic-live eligible.
+The separate r3 installer passed an isolated install check.
+
+**Automatic Live readback:** User log confirmed the selected-library translation
+probe fails after Scriptures opens, before any live Enter. Manual Present's
+operator verification is why it proceeds. A bounded read-only MSAA
+`accSelection` fallback is packaged separately in r4 and passes a standard
+selected-list test; EasyWorship live confirmation is still required. Keep
+automatic output paused if the requested translation remains unreadable.
+
+**Latest KJV-first decision:** The user changed the selected-version policy.
+Manual and automatic output now share the mapped/tracked navigation path;
+unreadable library selection does not itself pause automatic output. Readable
+mismatch and unverified scripture reference still stop live Enter. Direct
+EasyWorship version changes can stale the tracker; Reset version tracking
+reanchors on the next send. r5 passed parser/navigation/adapter/interface
+checks and an isolated installer check; live operator confirmation remains.

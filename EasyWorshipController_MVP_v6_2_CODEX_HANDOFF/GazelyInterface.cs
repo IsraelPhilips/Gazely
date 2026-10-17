@@ -207,6 +207,12 @@ namespace EasyWorshipControllerMvp
         private double overlayRms=-90,overlayPeak=-90;
         private void OpenMiniOverlay()
         {
+            string accessReason;
+            if(GazelyCloudBuild.LoginRequired && !cloudAccess.CanStart(out accessReason)){
+                SelectPage("account");
+                MessageBox.Show(this,accessReason,"Sign in to use Mini",MessageBoxButtons.OK,MessageBoxIcon.Information);
+                return;
+            }
             if(miniOverlay==null || miniOverlay.IsDisposed)miniOverlay=new MiniOverlay(this);
             if(!miniOverlay.EnsureOperatorMonitor())return;
             miniOverlay.Open();Hide();
@@ -231,12 +237,15 @@ namespace EasyWorshipControllerMvp
             private readonly ContextMenuStrip optionsMenu=new ContextMenuStrip();
             private FormWindowState workspaceWindowState=FormWindowState.Normal;
             private readonly TableLayoutPanel body;
-            private readonly Label status,reference,score,source,output,pageLabel;
+            private readonly Label status,reference,versePreview,score,source,output,pageLabel;
             private readonly TextBox transcript;
             private readonly AudioLevelMeter meter=new AudioLevelMeter();
             private readonly Button listen,preview,live;
             private readonly CheckBox autoPreview=new GazelyToggle(),autoLive=new GazelyToggle();
             private readonly BufferedDetectionPanel detections=new BufferedDetectionPanel();
+            private readonly FlowLayoutPanel alternatives=new FlowLayoutPanel{Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false,AutoScroll=true};
+            private readonly TableLayoutPanel passage=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,Margin=Padding.Empty};
+            private string alternativesKey="";
             private string monitorName="",targetProcess="",targetTitle="",corner="Free",mode="Compact",signature="";
             private bool enabled,syncing,placing,trackingMouse,closingHost,lastDark;
             private int page;
@@ -248,10 +257,16 @@ namespace EasyWorshipControllerMvp
             {
                 host=owner;Name="GazelyMiniOverlay";Text="Gazely Mini Overlay";FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;
                 StartPosition=FormStartPosition.Manual;AutoScaleMode=AutoScaleMode.Dpi;Font=new Font("Segoe UI",10);Padding=new Padding(8);DoubleBuffered=true;
-                sizes["Collapsed"]=new Size(420,100);sizes["Compact"]=new Size(440,292);sizes["Expanded"]=new Size(510,760);
+                sizes["Collapsed"]=new Size(420,100);sizes["Compact"]=new Size(480,400);sizes["Expanded"]=new Size(580,850);
                 body=Vertical(38,36,62,42,40,0,0,0,0,0,0);Controls.Add(body);
                 var heading=Row();heading.WrapContents=false;heading.Dock=DockStyle.Fill;
-                var title=CopyLabel("Gazely mini  ·  drag",11,true);title.Width=170;title.AutoSize=false;title.Height=32;
+                var symbol=new PictureBox{Size=new Size(26,30),SizeMode=PictureBoxSizeMode.Zoom,AccessibleName="Gazely logo",Margin=new Padding(2,1,6,1)};
+                string logoPath=System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","gazely.png");
+                if(System.IO.File.Exists(logoPath))using(var png=new System.IO.MemoryStream(System.IO.File.ReadAllBytes(logoPath)))using(Image original=Image.FromStream(png))symbol.Image=new Bitmap(original);
+                FormClosed+=delegate{if(symbol.Image!=null)symbol.Image.Dispose();};
+                heading.Controls.Add(symbol);
+                var title=CopyLabel("Gazely mini",11,true);title.Width=130;title.AutoSize=false;title.Height=32;
+                tips.SetToolTip(title,"Drag to reposition Gazely Mini");
                 title.MouseDown+=delegate(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Left){corner="Free";ReleaseCapture();SendMessage(Handle,0xA1,new IntPtr(2),IntPtr.Zero);Save();}};
                 heading.Controls.Add(title);
                 AddButton(heading,"−",delegate{SetMode("Collapsed");},"Collapse");
@@ -261,7 +276,12 @@ namespace EasyWorshipControllerMvp
                 var signals=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=3,RowCount=1};signals.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));signals.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,82));signals.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,95));
                 status=CopyLabel("Stopped",10,false);status.Dock=DockStyle.Fill;signals.Controls.Add(status,0,0);meter.Dock=DockStyle.Fill;signals.Controls.Add(meter,1,0);
                 listen=AddButton(signals,"Listen",delegate{if(host.audioListening)host.StopListening();else host.StartListening();},"Start / stop listening");signals.SetCellPosition(listen,new TableLayoutPanelCellPosition(2,0));body.Controls.Add(signals,0,1);
-                reference=CopyLabel("Waiting for a reference",18,true);reference.AutoSize=false;reference.Dock=DockStyle.Fill;reference.AutoEllipsis=true;body.Controls.Add(reference,0,2);
+                reference=CopyLabel("Waiting for a reference",18,true);reference.AutoSize=false;reference.Dock=DockStyle.Fill;reference.AutoEllipsis=true;
+                passage.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+                passage.RowStyles.Add(new RowStyle(SizeType.Absolute,43));passage.RowStyles.Add(new RowStyle(SizeType.Absolute,82));passage.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+                versePreview=CopyLabel("Say a reference to preview its words.",10,false);versePreview.Name="MiniVersePreview";versePreview.AutoSize=false;versePreview.Dock=DockStyle.Fill;versePreview.AutoEllipsis=true;versePreview.AccessibleName="Selected scripture text preview";
+                passage.Controls.Add(reference,0,0);passage.Controls.Add(versePreview,0,1);passage.Controls.Add(alternatives,0,2);body.Controls.Add(passage,0,2);
+                passage.Resize+=delegate{ArrangeAlternatives();};
                 score=CopyLabel("Confidence: —",9,false);score.AutoSize=false;score.Dock=DockStyle.Fill;body.Controls.Add(score,0,3);
                 var actions=Row();preview=AddButton(actions,"PREVIEW",delegate{if(host.previewDetectedButton.Enabled)host.RunDetected(false);},"Prepare selected scripture in the presentation app");preview.Width=135;
                 live=AddButton(actions,"SHOW LIVE",delegate{if(host.liveDetectedButton.Enabled)host.RunDetected(true);},"Present selected scripture now");live.Width=150;live.Tag="primary";body.Controls.Add(actions,0,4);
@@ -295,13 +315,20 @@ namespace EasyWorshipControllerMvp
             public bool EnsureOperatorMonitor()
             {
                 if(OperatorScreen!=null)return true;
-                using(var dialog=new Form{Text="Choose the operator monitor",Size=new Size(540,230),StartPosition=FormStartPosition.CenterParent,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,MinimizeBox=false})
+                using(var dialog=new Form{Text="Meet Gazely Mini",Size=new Size(660,475),StartPosition=FormStartPosition.CenterParent,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,MinimizeBox=false,Font=new Font("Segoe UI",10)})
                 {
-                    var label=new Label{Text="Choose the operator screen, never the projector.\r\nUse Windows Extend mode: mirrored displays show the same content.",Dock=DockStyle.Top,Height=65,Padding=new Padding(12)};
-                    var list=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Left=15,Top=80,Width=490};
+                    TableLayoutPanel body=Vertical(52,65,95,34,46,-100,48);body.Padding=new Padding(25,20,25,16);dialog.Controls.Add(body);
+                    Label title=CopyLabel("Keep the essentials close.",21,true);Fill(title);body.Controls.Add(title,0,0);
+                    Label introduction=CopyLabel("Mini keeps Listen, scripture suggestions, Prepare and Present within reach while the full workspace stays out of your way.",11,false);Fill(introduction);body.Controls.Add(introduction,0,1);
+                    Label detail=CopyLabel("Drag the Mini title to move it. Use its menu to switch between compact and expanded views or anchor it to EasyWorship. The open icon returns to the full workspace; your listening session continues.",10,false);Fill(detail);detail.Tag="muted";body.Controls.Add(detail,0,2);
+                    Label monitor=CopyLabel("Choose the operator monitor",12,true);Fill(monitor);body.Controls.Add(monitor,0,3);
+                    var list=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Dock=DockStyle.Fill,AccessibleName="Operator monitor for Gazely Mini"};
                     foreach(Screen s in Screen.AllScreens)list.Items.Add(s.DeviceName+"  ·  "+s.Bounds.Width+" × "+s.Bounds.Height+(s.Primary?"  ·  Primary":""));
                     list.SelectedIndex=Array.IndexOf(Screen.AllScreens,Screen.FromControl(host));if(list.SelectedIndex<0)list.SelectedIndex=0;
-                    var ok=new Button{Text="Use this monitor",DialogResult=DialogResult.OK,Left=330,Top=125,Width=175};dialog.Controls.Add(label);dialog.Controls.Add(list);dialog.Controls.Add(ok);dialog.AcceptButton=ok;
+                    body.Controls.Add(list,0,4);
+                    Label safety=CopyLabel("Choose an extended operator screen. Mirroring also shows Mini on the projector.",9,false);Fill(safety);safety.Tag="muted";body.Controls.Add(safety,0,5);
+                    FlowLayoutPanel actions=Row();Button ok=new GazelyButton{Name="OpenMiniHere",Text="Open Mini here",DialogResult=DialogResult.OK,Width=160,Height=36,Tag="primary"};Button cancel=new GazelyButton{Name="CancelMini",Text="Not now",DialogResult=DialogResult.Cancel,Width=100,Height=36};actions.Controls.Add(ok);actions.Controls.Add(cancel);body.Controls.Add(actions,0,6);
+                    dialog.AcceptButton=ok;dialog.CancelButton=cancel;GazelyTheme.Apply(dialog);
                     if(dialog.ShowDialog(host)!=DialogResult.OK)return false;
                     Screen chosen=Screen.AllScreens[list.SelectedIndex];monitorName=chosen.DeviceName;Location=new Point(chosen.WorkingArea.Right-Width-16,chosen.WorkingArea.Top+16);Save();return true;
                 }
@@ -325,8 +352,8 @@ namespace EasyWorshipControllerMvp
             {
                 if(value!="Collapsed" && value!="Compact" && value!="Expanded")value="Compact";
                 mode=value;bool expanded=mode=="Expanded",collapsed=mode=="Collapsed";
-                MinimumSize=collapsed?new Size(340,92):expanded?new Size(430,580):new Size(380,265);
-                int[] heights={38,36,62,42,40,34,90,36,36,0,38};
+                MinimumSize=collapsed?new Size(340,92):expanded?new Size(430,700):new Size(380,300);
+                int[] heights={38,36,expanded?196:166,42,40,34,90,36,36,0,38};
                 for(int i=0;i<body.RowStyles.Count;i++){body.RowStyles[i].SizeType=SizeType.Absolute;body.RowStyles[i].Height=(collapsed && i>1)||(!expanded && i>4)?0:heights[i];}
                 if(expanded){body.RowStyles[9].SizeType=SizeType.Percent;body.RowStyles[9].Height=100;}
                 for(int i=2;i<=10;i++){Control c=body.GetControlFromPosition(0,i);if(c!=null)c.Visible=!collapsed && (i<=4 || expanded);}
@@ -334,13 +361,18 @@ namespace EasyWorshipControllerMvp
             }
             private void RefreshState()
             {
+                RefreshAlternatives();
                 if(host.IsDisposed)return;
-                status.Text=host.audioListening?"● Listening":"○ Stopped";listen.Text=host.audioListening?"Stop":"Listen";
+                status.Text=host.listeningState==ListeningState.Listening?"● Listening":host.listeningState==ListeningState.ApplyingChanges?"Applying changes…":host.listeningState==ListeningState.Starting?"Starting…":host.listeningState==ListeningState.Stopping?"Stopping…":host.listeningState==ListeningState.Failed?"Needs attention":"○ Stopped";
+                tips.SetToolTip(status,host.recognizerStatusLabel.Text);
+                listen.Text=host.audioListening?"Stop":"Listen";
                 listen.Enabled=host.audioListening?host.stopListeningButton.Enabled:host.startListeningButton.Enabled;
                 meter.SetLevels(host.audioListening?host.overlayRms:-90,host.audioListening?host.overlayPeak:-90);
                 ScriptureDetection d=host.lastDetection;
                 string version=d!=null && d.TranslationExplicit && !string.IsNullOrEmpty(d.Translation)?d.Translation:"KJV";
                 reference.Text=host.detectedReferenceLabel.Text+"  ·  "+version;
+                versePreview.Text=host.verseExcerpt.Text;
+                tips.SetToolTip(versePreview,versePreview.Text);
                 double confidence=d==null?-1:d.MatchScore>=0?d.MatchScore:d.Confidence;
                 score.Text=(confidence<0?"Confidence: pending":"Match score: "+(confidence*100).ToString("0")+"%")+"\r\n"+host.detectedConfidenceLabel.Text;
                 preview.Enabled=host.previewDetectedButton.Enabled;live.Enabled=host.liveDetectedButton.Enabled;
@@ -352,6 +384,31 @@ namespace EasyWorshipControllerMvp
                 output.Text=host.presentationStatus.Text;
                 if(lastDark!=GazelyTheme.Dark){lastDark=GazelyTheme.Dark;GazelyTheme.Apply(this);}
                 if(mode=="Expanded")RefreshDetections(false);
+            }
+            private void ArrangeAlternatives()
+            {
+                foreach(Control c in alternatives.Controls)c.Width=Math.Max(150,alternatives.ClientSize.Width-22);
+            }
+            private void RefreshAlternatives()
+            {
+                var anchor=host.activeReference.Current;
+                string selected=host.lastDetection==null?"":host.lastDetection.Signature;
+                string key=mode+"|"+selected+"|"+(anchor==null?"":anchor.Signature);
+                foreach(var d in host.passageAlternatives)key+="|"+d.Signature;
+                if(key==alternativesKey)return;
+                if(alternatives.RectangleToScreen(alternatives.ClientRectangle).Contains(Cursor.Position))return;
+                alternativesKey=key;alternatives.SuspendLayout();
+                while(alternatives.Controls.Count>0)alternatives.Controls[0].Dispose();
+                int count=0,limit=mode=="Expanded"?3:1;
+                if(mode=="Expanded" && anchor!=null && anchor.Signature!=selected){
+                    AddButton(alternatives,"Spoken anchor · "+ActiveReferenceText(anchor),host.RestoreSpokenAnchor,"Return to spoken anchor without presenting");
+                }
+                foreach(var item in host.passageAlternatives){
+                    if(count>=limit)break;if(item.Signature==selected)continue;var snapshot=item.Snapshot();
+                    var b=AddButton(alternatives,"Possible quote · "+snapshot.ReferenceText,delegate{host.SelectPassageAlternative(snapshot);},"Select quotation without presenting");
+                    b.Tag="muted-action";count++;
+                }
+                ArrangeAlternatives();GazelyTheme.Apply(alternatives);alternatives.ResumeLayout();
             }
             private void RefreshDetections(bool force)
             {
@@ -448,7 +505,7 @@ namespace EasyWorshipControllerMvp
             if(restoringPreferences || autoLiveCheck==null)return;
             try{var data=WorkspacePreferences.Load();
                 data["dark"]=GazelyTheme.Dark.ToString();data["autoLive"]=autoLiveCheck.Checked.ToString();data["autoPrepare"]=autoPreviewCheck.Checked.ToString();data["earlyResults"]=earlyResultsCheck.Checked.ToString();data["audioRefinement"]=refinementCheck.Checked.ToString();
-                data["engine"]=speechEngineCombo.Text;data["model"]=whisperModelCombo.Text;data["pickup"]=vadSensitivityCombo.Text;data["input"]=audioDeviceCombo.Text;
+                data["engineId"]=SelectedSpeechEngineId;data["engine"]=speechEngineCombo.Text;data["model"]=whisperModelCombo.Text;data["pickup"]=vadSensitivityCombo.Text;data["input"]=audioDeviceCombo.Text;
                 WorkspacePreferences.Save(data);
             }catch(Exception ex){AddLog("Could not save workspace preferences: "+ex.Message);}
         }
@@ -460,6 +517,9 @@ namespace EasyWorshipControllerMvp
                 if(data.TryGetValue("dark",out value) && bool.TryParse(value,out flag))GazelyTheme.Dark=flag;
                 string[] keys={"engine","model","pickup","input"};ComboBox[] boxes={speechEngineCombo,whisperModelCombo,vadSensitivityCombo,audioDeviceCombo};
                 for(int i=0;i<keys.Length;i++)if(data.TryGetValue(keys[i],out value)){int index=boxes[i].FindStringExact(value);if(index>=0)boxes[i].SelectedIndex=index;}
+                string engineId;
+                if(!data.TryGetValue("engineId",out engineId)){data.TryGetValue("engine",out value);engineId=value!=null && value.StartsWith("Nemotron")?"nemotron":"whisper";}
+                foreach(SpeechEngineChoice choice in speechEngineCombo.Items)if(choice.Id==engineId)speechEngineCombo.SelectedItem=choice;
                 if(data.TryGetValue("audioRefinement",out value) && bool.TryParse(value,out flag))refinementCheck.Checked=flag;
                 if(data.TryGetValue("earlyResults",out value) && bool.TryParse(value,out flag))earlyResultsCheck.Checked=flag;
                 if(data.TryGetValue("autoPrepare",out value) && bool.TryParse(value,out flag))autoPreviewCheck.Checked=flag;
@@ -505,6 +565,7 @@ namespace EasyWorshipControllerMvp
             if(d==null || !string.Equals(d.Book,draftBook.Text.Trim(),StringComparison.OrdinalIgnoreCase) || !BibleCanon.IsValid(d.Book,d.Chapter,d.Verse))
             {draftStatus.Text="Enter a valid book, chapter and verse (or range).";return;}
             d.RequiresReview=true;d.EvidenceKind="operator";d.Reason="Reference entered by the operator";
+            d.Translation=versionCombo.Text;d.TranslationExplicit=!string.IsNullOrWhiteSpace(d.Translation);
             d.Confidence=1;d.SourceText="Operator: "+draftBook.Text+" "+draftChapter.Text+":"+draftVerse.Text;
             operatorDraft=false;historyEventKey="operator:"+DateTime.UtcNow.Ticks;ShowDetection(d);referenceRefinement.UpdateIntent(null,listeningSession);operatorDraft=true;RefreshPassageAlternatives();
             draftStatus.Text="Operator reference held • Release scripture to follow new suggestions.";
@@ -515,6 +576,37 @@ namespace EasyWorshipControllerMvp
         private readonly System.Collections.Generic.Dictionary<ListViewItem,string> candidateRowVersions=new System.Collections.Generic.Dictionary<ListViewItem,string>();
         private bool selectingHistory;
         private Label verseExcerpt;
+        private Label speechSettingsStatus;
+        private Label nemotronProfileHint;
+        private Button applySpeechSettings;
+        private bool installingSpeechPackage;
+        private string packageCancelPath;
+        private async void InstallSpeechPackage(Label progress,Button install,Button cancel)
+        {
+            if(installingSpeechPackage)return;
+            installingSpeechPackage=true;install.Enabled=false;cancel.Enabled=true;
+            string engine=SelectedSpeechEngineId;
+            packageCancelPath=System.IO.Path.Combine(System.IO.Path.GetTempPath(),"gazely-install-"+Guid.NewGuid().ToString("N")+".cancel");
+            string cancelPath=packageCancelPath;
+            progress.Text="Checking installed offline files…";
+            try {
+                int result=await System.Threading.Tasks.Task.Run(delegate {
+                    using(var process=new System.Diagnostics.Process()) {
+                        string script=System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Install-SpeechPackage.ps1");
+                        process.StartInfo=new System.Diagnostics.ProcessStartInfo("powershell.exe","-NoProfile -ExecutionPolicy Bypass -File \""+script+"\" -Engine "+engine+" -Offline -CancelFile \""+cancelPath+"\"")
+                            {UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+                        System.Diagnostics.DataReceivedEventHandler received=delegate(object sender,System.Diagnostics.DataReceivedEventArgs e){
+                            if(string.IsNullOrWhiteSpace(e.Data))return;AddLog("Speech package: "+e.Data);
+                            if(!IsDisposed && IsHandleCreated)try{BeginInvoke((MethodInvoker)delegate{if(!progress.IsDisposed)progress.Text=e.Data;});}catch(InvalidOperationException){}
+                        };
+                        process.OutputDataReceived+=received;process.ErrorDataReceived+=received;
+                        process.Start();process.BeginOutputReadLine();process.BeginErrorReadLine();process.WaitForExit();return process.ExitCode;
+                    }
+                });
+                if(!IsDisposed)progress.Text=result==0?"Package verified. Ready for your next listening session.":System.IO.File.Exists(cancelPath)?"Installation canceled. Choose Install / verify to resume.":"Installation did not finish. See Diagnostics; retry to resume. Current listening is unchanged.";
+            }catch(Exception ex){if(!IsDisposed)progress.Text="Installation failed: "+ex.Message;}
+            finally{installingSpeechPackage=false;packageCancelPath=null;if(!IsDisposed){install.Enabled=true;cancel.Enabled=false;}}
+        }
         private readonly System.Collections.Generic.List<ScriptureDetection> passageAlternatives=new System.Collections.Generic.List<ScriptureDetection>();
         private BufferedDetectionPanel passageAlternativesPanel;
         private TableLayoutPanel passageBody;
@@ -527,6 +619,14 @@ namespace EasyWorshipControllerMvp
             passageAlternatives.Insert(0,candidate.Snapshot());
             if(passageAlternatives.Count>20)passageAlternatives.RemoveAt(20); // Full session evidence remains in History.
         }
+        private void RememberPreviousPassage(ScriptureDetection incoming)
+        {
+            ScriptureDetection selected=lastDetection;
+            if(selected==null || selected.ReferenceText==incoming.ReferenceText || !BibleCanon.IsValid(selected.Book,selected.Chapter,selected.Verse))return;
+            passageAlternatives.RemoveAll(delegate(ScriptureDetection d){return d.ReferenceText==selected.ReferenceText;});
+            passageAlternatives.Insert(0,selected.Snapshot());
+            if(passageAlternatives.Count>20)passageAlternatives.RemoveAt(20);
+        }
         private void SelectPassageAlternative(ScriptureDetection quote)
         {
             referenceRefinement.UpdateIntent(null,listeningSession);++interpretationRevision;
@@ -538,7 +638,7 @@ namespace EasyWorshipControllerMvp
         }
         private void RestoreSpokenAnchor()
         {
-            referenceRefinement.UpdateIntent(null,listeningSession);++interpretationRevision;operatorDraft=false;
+            referenceRefinement.UpdateIntent(null,listeningSession);++interpretationRevision;operatorDraft=false;followingQuotation=false;
             RenderActiveReference(true);RefreshPassageAlternatives();
         }
         private void RefreshPassageAlternatives()
@@ -546,14 +646,14 @@ namespace EasyWorshipControllerMvp
             if(passageAlternativesPanel==null)return;
             ScriptureDetection anchor=activeReference.Current;
             string selected=lastDetection==null?string.Empty:lastDetection.ReferenceText;
-            string stamp=(anchor==null?"":ActiveReferenceText(anchor))+"|"+selected+"|"+operatorDraft;
+            string stamp=(anchor==null?"":ActiveReferenceText(anchor))+"|"+selected+"|"+operatorDraft+"|"+followingQuotation;
             foreach(ScriptureDetection quote in passageAlternatives)stamp+="|"+quote.ReferenceText;
             if(stamp==passageAlternativesStamp)return;passageAlternativesStamp=stamp;
             int scroll=-passageAlternativesPanel.AutoScrollPosition.Y;
             passageAlternativesPanel.BeginUpdate();passageAlternativesPanel.SuspendLayout();
             try{
                 while(passageAlternativesPanel.Controls.Count>0)passageAlternativesPanel.Controls[0].Dispose();
-                if(operatorDraft && anchor!=null){
+                if((operatorDraft || followingQuotation) && anchor!=null){
                     Button restore=new GazelyButton{Name="RestoreSpokenAnchor",Text="Spoken anchor  ·  "+ActiveReferenceText(anchor),Tag="muted-action",Font=new Font("Segoe UI",12),TextAlign=ContentAlignment.MiddleLeft,Height=36};
                     restore.Click+=delegate{RestoreSpokenAnchor();};passageAlternativesPanel.Controls.Add(restore);
                     evidenceTip.SetToolTip(restore,"Return to the current spoken reference without losing quote suggestions");
@@ -561,10 +661,11 @@ namespace EasyWorshipControllerMvp
                 foreach(ScriptureDetection entry in passageAlternatives){
                     if(entry.ReferenceText==selected)continue;
                     ScriptureDetection snapshot=entry.Snapshot();
-                    Button pick=new GazelyButton{Name="QuoteAlternative",Text="Possible quote  ·  "+snapshot.ReferenceText,Tag="muted-action",Font=new Font("Segoe UI",12),TextAlign=ContentAlignment.MiddleLeft,Height=36};
-                    pick.AccessibleName="Review possible quotation "+snapshot.ReferenceText;
+                    bool quote=snapshot.EvidenceKind=="quotation";
+                    Button pick=new GazelyButton{Name="QuoteAlternative",Text=(quote?"Possible quote":"Previous passage")+"  ·  "+snapshot.ReferenceText,Tag="muted-action",Font=new Font("Segoe UI",12),TextAlign=ContentAlignment.MiddleLeft,Height=36};
+                    pick.AccessibleName="Review "+(quote?"possible quotation ":"previous passage ")+snapshot.ReferenceText;
                     pick.Click+=delegate{SelectPassageAlternative(snapshot);};passageAlternativesPanel.Controls.Add(pick);
-                    evidenceTip.SetToolTip(pick,"Select for review, without presenting.\r\n"+snapshot.MatchedText);
+                    evidenceTip.SetToolTip(pick,"Select for review, without presenting.\r\n"+(snapshot.MatchedText??snapshot.SourceText));
                 }
                 foreach(Control row in passageAlternativesPanel.Controls)row.Width=Math.Max(180,passageAlternativesPanel.ClientSize.Width-24);
                 passageBody.RowStyles[0].Height=passageAlternativesPanel.Controls.Count==0?0:Math.Min(134,passageAlternativesPanel.Controls.Count*42+8);
@@ -580,7 +681,7 @@ namespace EasyWorshipControllerMvp
         private void SelectHistoryReference(ListViewItem row)
         {
             ScriptureDetection d=((ScriptureDetection)row.Tag).Snapshot();
-            ++interpretationRevision;operatorDraft=false;
+            ++interpretationRevision;operatorDraft=false;followingQuotation=false;
             if(HistoryCanPresent(row))
             {
                 d.RequiresReview=true;selectingHistory=true;
@@ -744,8 +845,8 @@ namespace EasyWorshipControllerMvp
             useDraft.Text="Use edit";useDraft.Size=new Size(82,34);useDraft.Margin=new Padding(0,0,0,0);
             FlowLayoutPanel fields=Row(Field("Book",draftBook,142),Field("Chapter",draftChapter,62),Field("Verse / range",draftVerse,80),useDraft);fields.Name="ReferenceEditor";fields.Visible=false;
             scripture.Controls.Add(fields,0,5);
-            Action showEditor=delegate{editing=true;fields.Visible=true;scripture.RowStyles[5].Height=112;edit.Text="Close editor";refreshArrangement();};
-            edit.Click+=delegate{editing=!editing;fields.Visible=editing;scripture.RowStyles[5].Height=editing?112:0;edit.Text=editing?"Close editor":"Edit reference";refreshArrangement();};
+            Action showEditor=delegate{editing=true;fields.Visible=true;scripture.RowStyles[5].Height=180;edit.Text="Close editor";refreshArrangement();};
+            edit.Click+=delegate{editing=!editing;fields.Visible=editing;scripture.RowStyles[5].Height=editing?180:0;edit.Text=editing?"Close editor":"Edit reference";refreshArrangement();};
             scripture.Controls.Add(draftStatus,0,6);
             liveDetectedButton.Text="Present";liveDetectedButton.Size=new Size(138,40);StyleIcon(liveDetectedButton,"play",false,"Present selected scripture now");
             previewDetectedButton.Size=new Size(112,40);StyleIcon(previewDetectedButton,"prepare",false,"Prepare selected scripture");StyleIcon(evidence,"info",true,"View source and matching evidence");
@@ -762,7 +863,7 @@ namespace EasyWorshipControllerMvp
             TableLayoutPanel candidates=Vertical(40,32,40,-100,34);candidates.Name="CandidateSection";candidates.Tag="surface";candidates.Padding=new Padding(16);candidates.Margin=new Padding(7,0,7,0);
             Button expand=new GazelyButton();expand.Name="ExpandCandidates";expand.Text="Expand list";expand.Size=new Size(98,30);expand.Tag="quiet";
             Button menuButton=new GazelyButton();menuButton.Name="WorkspaceOptions";menuButton.Text="Workspace options";StyleIcon(menuButton,"more",true,"History and workspace options");
-            ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("All history",null,delegate{((TabControl)page.Parent).SelectedIndex=6;});
+            ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("All history",null,delegate{SelectPage("history");});
             ToolStripItem reset=menu.Items.Add("Reset version tracking",null,delegate{ResetVersionTracking();});reset.Name="WorkspaceResetVersion";reset.Enabled=resyncVersionButton.Enabled;
             resyncVersionButton.EnabledChanged+=delegate{reset.Enabled=resyncVersionButton.Enabled;};
             menuButton.ContextMenuStrip=menu;menuButton.Click+=delegate{menu.Show(menuButton,new Point(0,menuButton.Height));};FormClosed+=delegate{menu.Dispose();};
@@ -889,6 +990,7 @@ namespace EasyWorshipControllerMvp
             FlowLayoutPanel pair=Row();pair.Dock=DockStyle.None;pair.Size=new Size(580,88);
             pair.Controls.Add(Field("Engine",speechEngineCombo,250));
             Panel profile=new Panel();profile.Controls.Add(whisperModelCombo);profile.Controls.Add(recognizerCombo);whisperModelCombo.Dock=recognizerCombo.Dock=DockStyle.Fill;
+            nemotronProfileHint=CopyLabel("Accurate model selected",9,false);nemotronProfileHint.Dock=DockStyle.Fill;profile.Controls.Add(nemotronProfileHint);
             pair.Controls.Add(Field("Speed / accuracy",profile,240));setupCard.Controls.Add(pair);
             setupCard.Controls.Add(Field("Voice pickup",vadSensitivityCombo,230));
             earlyResultsCheck.AutoSize=false;earlyResultsCheck.Size=new Size(550,32);earlyResultsCheck.Text="Show references while speech is being revised";setupCard.Controls.Add(earlyResultsCheck);
@@ -896,21 +998,52 @@ namespace EasyWorshipControllerMvp
             audioMeter.Dock=DockStyle.None;audioMeter.Size=new Size(370,28);setupCard.Controls.Add(audioMeter);
             audioDbLabel.AutoSize=true;setupCard.Controls.Add(audioDbLabel);recognizerStatusLabel.AutoSize=true;setupCard.Controls.Add(recognizerStatusLabel);
             refreshAudioButton.Size=new Size(195,36);setupCard.Controls.Add(refreshAudioButton);
+            speechSettingsStatus=CopyLabel("Stopped · Choose your input and speech engine.",9,false);speechSettingsStatus.AutoSize=false;speechSettingsStatus.Size=new Size(570,28);setupCard.Controls.Add(speechSettingsStatus);
+            applySpeechSettings=new GazelyButton{Text="Apply and restart listening",Width=245,Height=36,Enabled=false};
+            applySpeechSettings.Click+=async delegate{
+                if(startingListening || !audioListening)return;
+                applySpeechSettings.Enabled=false;listeningState=ListeningState.ApplyingChanges;StopListening();
+                while(!IsDisposed && (audioListening || startingListening))await System.Threading.Tasks.Task.Delay(50);
+                if(!IsDisposed && !closingApplication && listeningState!=ListeningState.Failed)StartListening();
+            };setupCard.Controls.Add(applySpeechSettings);setupCard.Height=670;
+            var revertSpeech=new GazelyButton{Text="Restore last working settings",Width=245,Height=36};
+            revertSpeech.Click+=delegate{
+                if(workingSpeechSettings==null || startingListening)return;
+                foreach(SpeechEngineChoice choice in speechEngineCombo.Items)if(choice.Id==workingSpeechSettings[0])speechEngineCombo.SelectedItem=choice;
+                ComboBox[] savedBoxes={audioDeviceCombo,whisperModelCombo,vadSensitivityCombo};
+                for(int i=0;i<savedBoxes.Length;i++){int at=savedBoxes[i].FindStringExact(workingSpeechSettings[i+1]);if(at>=0)savedBoxes[i].SelectedIndex=at;}
+                if(audioListening)applySpeechSettings.PerformClick();else StartListening();
+            };setupCard.Controls.Add(revertSpeech);setupCard.Height=710;
+            var packageInfo=CopyLabel("Speech models are included with this installer and run offline. Use Verify if an installed package needs checking or repair.",9,false);
+            packageInfo.MaximumSize=new Size(570,0);setupCard.Controls.Add(packageInfo);
+            var installPackage=new GazelyButton{Text="Install / verify selected engine",Width=270,Height=36};
+            var cancelPackage=new GazelyButton{Text="Cancel verification",Width=165,Height=36,Enabled=false};
+            var packageProgress=CopyLabel("Both speech models are bundled for offline use.",9,false);packageProgress.MaximumSize=new Size(570,0);
+            installPackage.Click+=delegate{InstallSpeechPackage(packageProgress,installPackage,cancelPackage);};
+            cancelPackage.Click+=delegate{if(packageCancelPath!=null)System.IO.File.WriteAllText(packageCancelPath,"cancel");};
+            var packageActions=Row(installPackage,cancelPackage);packageActions.Dock=DockStyle.None;packageActions.Size=new Size(570,44);
+            setupCard.Controls.Add(packageActions);setupCard.Controls.Add(packageProgress);setupCard.Height=860;
+            FormClosing+=delegate{if(packageCancelPath!=null)try{System.IO.File.WriteAllText(packageCancelPath,"cancel");}catch{}};
             foreach(Control item in setupCard.Controls)item.Anchor=AnchorStyles.Left|AnchorStyles.Top;
             foreach(Control item in manualCard.Controls)item.Anchor=AnchorStyles.Left|AnchorStyles.Top;
             TableLayoutPanel inputNote=Vertical(30,48,-100);inputNote.Tag="surface";inputNote.Dock=DockStyle.None;inputNote.Size=new Size(280,280);inputNote.Padding=new Padding(22);
             inputNote.Controls.Add(CopyLabel("Input check",11,true),0,0);inputNote.Controls.Add(CopyLabel("Make yourself heard.",16,false),0,1);
             Label inputHelp=CopyLabel("Speak at your normal volume. The meter should move with your voice.\r\n\r\nLocal AI processes speech on this PC. More accurate uses the larger model and needs more processing time.\r\n\r\nSettings apply when you start listening.",10,false);Fill(inputHelp);inputHelp.Tag="muted";inputNote.Controls.Add(inputHelp,0,2);AddAside(setup,setupCard,inputNote);
 
-            TableLayoutPanel mapping=PageContent(mapPage,"Your Bible versions.","Match the installed Bible order in EasyWorship. Recheck after adding or reordering versions.",570);
-            TableLayoutPanel mapCard=Vertical(38,-100,48);mapCard.Tag="surface";mapCard.Padding=new Padding(24);mapCard.MaximumSize=new Size(700,0);mapping.Controls.Add(mapCard,0,2);
-            mapCard.Controls.Add(CopyLabel("One CODE=INDEX per line, starting at zero.",10,false),0,0);Fill(mapEditor);mapCard.Controls.Add(mapEditor,0,1);mapCard.Controls.Add(Row(saveMapButton,reloadMapButton),0,2);
+            TableLayoutPanel mapping=PageContent(mapPage,"Your Bible versions.","Gazely proposes a local list. Compare it with EasyWorship > Scriptures before saving, and recheck after a profile or Bible-list change.",570);
+            TableLayoutPanel mapCard=Vertical(38,48,-100,48);mapCard.Tag="surface";mapCard.Padding=new Padding(24);mapCard.MaximumSize=new Size(700,0);mapping.Controls.Add(mapCard,0,2);
+            mapCard.Controls.Add(CopyLabel("Detect and review this PC's Bible order. Advanced: CODE=INDEX lines.",10,false),0,0);
+            Button setupBibleList=new GazelyButton{Name="SetupBibleList",Text="Detect and review Bibles",Width=250,Height=36};
+            setupBibleList.Click+=delegate{ShowVersionCatalogueSetup();};
+            mapCard.Controls.Add(Row(setupBibleList),0,1);
+            Fill(mapEditor);mapCard.Controls.Add(mapEditor,0,2);mapCard.Controls.Add(Row(saveMapButton,reloadMapButton),0,3);
 
             // Keep the existing integration controls and event handlers, including cancellation.
             FlowLayoutPanel old=integrationsPage.Controls[0] as FlowLayoutPanel;
             Control[] integrationControls=new Control[old.Controls.Count];old.Controls.CopyTo(integrationControls,0);
             TableLayoutPanel integrations=PageContent(integrationsPage,"Connected to your workflow.","Choose where Gazely prepares and presents content.",730);
             FlowLayoutPanel integrationCard=FormCard(800);integrationCard.Height=600;integrations.Controls.Add(integrationCard,0,2);
+            integrationCard.Name="IntegrationSettings";
             for(int i=2;i<integrationControls.Length;i++)
             {
                 Control item=integrationControls[i];item.MaximumSize=new Size(735,0);item.Margin=new Padding(0,0,0,15);
@@ -1061,7 +1194,7 @@ namespace EasyWorshipControllerMvp
             historyPrepareButton=new GazelyButton();historyPrepareButton.Text="Prepare";historyPrepareButton.Size=new Size(110,36);
             historyPresentButton=new GazelyButton();historyPresentButton.Text="Present";historyPresentButton.Size=new Size(110,36);historyPresentButton.Tag="primary";
             historyLoadButton.Enabled=historyPrepareButton.Enabled=historyPresentButton.Enabled=false;
-            historyLoadButton.Click+=delegate{if(suggestionHistory.SelectedItems.Count==0)return;SelectHistoryReference(suggestionHistory.SelectedItems[0]);((TabControl)page.Parent).SelectedIndex=1;};
+            historyLoadButton.Click+=delegate{if(suggestionHistory.SelectedItems.Count==0)return;SelectHistoryReference(suggestionHistory.SelectedItems[0]);SelectPage("workspace");};
             historyPrepareButton.Click+=delegate{if(suggestionHistory.SelectedItems.Count==0 || !HistoryCanPresent(suggestionHistory.SelectedItems[0]))return;SelectHistoryReference(suggestionHistory.SelectedItems[0]);RunDetected(false);};
             historyPresentButton.Click+=delegate{if(suggestionHistory.SelectedItems.Count==0 || !HistoryCanPresent(suggestionHistory.SelectedItems[0]))return;SelectHistoryReference(suggestionHistory.SelectedItems[0]);RunDetected(true);};
             content.Controls.Add(Row(historyLoadButton,historyPrepareButton,historyPresentButton),0,4);
@@ -1094,6 +1227,8 @@ namespace EasyWorshipControllerMvp
             layout.Controls.Add(label,0,row);input.Dock=DockStyle.Fill;input.Margin=new Padding(0,4,0,14);
             layout.Controls.Add(input,1,row);
         }
+        private TabControl workspacePages;
+        private void SelectPage(string id){if(workspacePages!=null && workspacePages.TabPages.ContainsKey(id))workspacePages.SelectedTab=workspacePages.TabPages[id];}
         private void BuildGazelyInterface(TabControl tabs,TabPage controlTab,TabPage audioTab,TabPage mapTab,TabPage integrationsTab)
         {
             SuspendLayout();
@@ -1108,8 +1243,10 @@ namespace EasyWorshipControllerMvp
             Font=new Font("Segoe UI",10F);MinimumSize=new Size(980,700);Size=new Size(1280,980);
             tabs.Appearance=TabAppearance.FlatButtons;tabs.ItemSize=new Size(0,1);tabs.SizeMode=TabSizeMode.Fixed;
             tabs.Multiline=false;tabs.Padding=new Point(0,0);
-            TabPage setupTab=new TabPage("Speech setup"),diagnosticsTab=new TabPage("Diagnostics"),historyTab=new TabPage("History");
-            tabs.TabPages.Add(setupTab);tabs.TabPages.Add(diagnosticsTab);tabs.TabPages.Add(historyTab);BuildHistory(historyTab);
+            TabPage setupTab=new TabPage("Speech setup"),diagnosticsTab=new TabPage("Diagnostics"),historyTab=new TabPage("History"),howToTab=new TabPage("How to"),accountTab=new TabPage("Account");
+            workspacePages=tabs;audioTab.Name="workspace";setupTab.Name="speech";diagnosticsTab.Name="diagnostics";
+            historyTab.Name="history";integrationsTab.Name="integrations";mapTab.Name="versions";howToTab.Name="howto";accountTab.Name="account";
+            tabs.TabPages.Add(setupTab);tabs.TabPages.Add(diagnosticsTab);tabs.TabPages.Add(historyTab);tabs.TabPages.Add(howToTab);tabs.TabPages.Add(accountTab);BuildHistory(historyTab);
 
             // Reuse the live controls and their event handlers; change layout, not the recognition path.
             audioTab.Controls.Clear();audioTab.AutoScroll=true;
@@ -1220,14 +1357,15 @@ namespace EasyWorshipControllerMvp
             presentationStatus.TextChanged+=delegate { manualResult.Text=presentationStatus.Text; };
 
             mapTab.Controls.Clear();
-            TableLayoutPanel mapping=Vertical(58,58,-100,48);mapping.Padding=new Padding(28);mapTab.Controls.Add(mapping);
+            TableLayoutPanel mapping=Vertical(58,72,48,-100,48);mapping.Padding=new Padding(28);mapTab.Controls.Add(mapping);
             mapping.Controls.Add(CopyLabel("Bible versions",23,true),0,0);
-            Label mapHint=CopyLabel("Match the installed Bible order in EasyWorship on this PC. Use one CODE=INDEX per line, starting at zero.\r\nRecheck this map when you add, remove or reorder Bible versions.",10,false);
+            Label mapHint=CopyLabel("Open EasyWorship > Scriptures and read the installed Bible abbreviations from top to bottom.\r\nUse setup below; recheck after a profile or Bible-list change. Advanced: CODE=INDEX lines.",10,false);
             mapHint.MaximumSize=new Size(820,0);mapHint.Tag="muted";mapping.Controls.Add(mapHint,0,1);
-            Fill(mapEditor);mapping.Controls.Add(mapEditor,0,2);
+            mapping.Controls.Add(Row(),0,2);
+            Fill(mapEditor);mapping.Controls.Add(mapEditor,0,3);
             saveMapButton.Text="Save version map";saveMapButton.Size=new Size(165,34);
             reloadMapButton.Text="Reload";reloadMapButton.Size=new Size(105,34);
-            mapping.Controls.Add(Row(saveMapButton,reloadMapButton),0,3);
+            mapping.Controls.Add(Row(saveMapButton,reloadMapButton),0,4);
 
             // A small shell replaces the legacy tab strip without adding a browser runtime.
             Controls.Remove(tabs);
@@ -1251,12 +1389,15 @@ namespace EasyWorshipControllerMvp
                 int inset=28;
                 masthead.Padding=new Padding(inset,10,0,0);navigation.Padding=new Padding(inset,0,0,0);
             };
-            string[] names={"Live workspace","Present","Speech setup","Integrations","Bible versions","History","Diagnostics"};
-            TabPage[] pages={audioTab,controlTab,setupTab,integrationsTab,mapTab,historyTab,diagnosticsTab};
+            BuildHowToPage(howToTab);
+            BuildAccountPage(accountTab);
+            string[] names={"Live workspace","Speech setup","Integrations","Bible versions","How to","Account","History","Diagnostics"};
+            TabPage[] pages={audioTab,setupTab,integrationsTab,mapTab,howToTab,accountTab,historyTab,diagnosticsTab};
             for(int i=0;i<pages.Length;i++)
             {
                 TabPage page=pages[i];Button button=new GazelyButton();button.Text=names[i];button.AutoSize=true;button.Height=34;
                 button.Margin=new Padding(0,0,8,0);navigation.Controls.Add(button);
+                if(page==accountTab && GazelyCloudBuild.FreeAccess)button.Visible=false;
                 button.Click+=delegate { tabs.SelectedTab=page;foreach(Control item in navigation.Controls) item.Tag="quiet";button.Tag="selected";GazelyTheme.Apply(this); };
                 button.Tag=i==0?"selected":"quiet";
             }
@@ -1278,7 +1419,192 @@ namespace EasyWorshipControllerMvp
             tabs.Region=null;
             RefineLivePage(audioTab,evidence,useDraft,followSpeech);
             RefineSecondaryPages(controlTab,setupTab,mapTab,integrationsTab,diagnosticsTab);
+            // Relocate the working controls before removing the legacy page.
+            FlowLayoutPanel editor=(FlowLayoutPanel)audioTab.Controls.Find("ReferenceEditor",true)[0];
+            editor.WrapContents=true;editor.AutoScroll=true;
+            editor.Controls.Add(Field("Output Bible",versionCombo,130));
+            FlowLayoutPanel connectionTools=(FlowLayoutPanel)integrationsTab.Controls.Find("IntegrationSettings",true)[0];
+            connectionTools.Controls.Add(CopyLabel("EasyWorship library",14,true));
+            connectionTools.Controls.Add(connectionLabel);connectionTools.Controls.Add(versionStateLabel);
+            FlowLayoutPanel connectionActions=Row(refreshButton,resyncVersionButton,testVersionButton);
+            connectionActions.Dock=DockStyle.None;connectionActions.Size=new Size(700,44);connectionTools.Controls.Add(connectionActions);
+            connectionTools.Height=780;
+            var inspectVersion=new GazelyButton{Text="Check library selection",Width=225,Height=36};
+            inspectVersion.Click+=async delegate{
+                inspectVersion.Enabled=false;
+                try{
+                    string report=await System.Threading.Tasks.Task.Run(delegate{return automation.ProbeVersionLibrary();});
+                    if(IsDisposed || Disposing)return;
+                    versionStateLabel.Text=report;versionStateLabel.MaximumSize=new Size(700,0);AddLog(report);
+                }catch(Exception ex){
+                    if(!IsDisposed && !Disposing){string report="Library selection check failed: "+ex.GetType().Name+". Gazely will use the saved Bible order and tracked position.";
+                        versionStateLabel.Text=report;AddLog(report);}
+                }finally{if(!IsDisposed && !Disposing)inspectVersion.Enabled=true;}
+            };
+            connectionTools.Controls.Add(inspectVersion);
+            tabs.TabPages.Remove(controlTab);
             GazelyTheme.Apply(this);UpdateEngineVisibility();ResumeLayout(true);
+        }
+        private void BuildHowToPage(TabPage page)
+        {
+            TableLayoutPanel content=PageContent(page,"Welcome to Gazely.","A simple path from setup to a live scripture.",700);
+            FlowLayoutPanel cards=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,FlowDirection=FlowDirection.TopDown,WrapContents=false,Padding=new Padding(0,8,0,0)};
+            content.Controls.Add(cards,0,2);
+            string[] titles={"1  Connect EasyWorship","2  Check your sound","3  Start listening","4  Use Mini when space is tight"};
+            string[] descriptions={
+                "Open EasyWorship 7 and its Scriptures tab. Gazely proposes the Bible order from local headers; compare every row with the visible library and save once.",
+                "In Speech setup, choose the input carrying the speaker's voice. Stereo Mix works when that voice is already audible through this PC. The meter should move during speech.",
+                "Go to Live workspace and choose Start listening. Review a scripture suggestion before Prepare or Present. The live slide is a separate EasyWorship state.",
+                "Mini shows the same listening controls and scripture suggestions in a floating view. Choose the operator monitor, never the projector. Drag its title to move it; use the menu for size and anchoring, and the open icon to return."};
+            for(int i=0;i<titles.Length;i++)
+            {
+                TableLayoutPanel card=Vertical(34,72);card.Tag="surface";card.Dock=DockStyle.None;card.Size=new Size(950,118);card.Padding=new Padding(18,12,18,10);card.Margin=new Padding(0,0,0,12);
+                Label title=CopyLabel(titles[i],14,true);Fill(title);card.Controls.Add(title,0,0);
+                Label description=CopyLabel(descriptions[i],10,false);Fill(description);description.Tag="muted";card.Controls.Add(description,0,1);cards.Controls.Add(card);
+            }
+            FlowLayoutPanel actions=Row();actions.Dock=DockStyle.None;actions.Size=new Size(950,44);
+            Button bibles=new GazelyButton{Text="Set up Bible versions",Width=190,Height=36,Tag="primary"};
+            bibles.Click+=delegate{SelectPage("versions");ShowVersionCatalogueSetup();};
+            Button sound=new GazelyButton{Text="Check speech setup",Width=180,Height=36};sound.Click+=delegate{SelectPage("speech");};
+            Button live=new GazelyButton{Text="Go to Live workspace",Width=190,Height=36};live.Click+=delegate{SelectPage("workspace");};
+            actions.Controls.Add(bibles);actions.Controls.Add(sound);actions.Controls.Add(live);cards.Controls.Add(actions);
+            cards.Resize+=delegate{foreach(Control card in cards.Controls)card.Width=Math.Max(300,cards.ClientSize.Width-28);};
+        }
+        private void BuildAccountPage(TabPage page)
+        {
+            if(GazelyCloudBuild.FreeAccess){
+                TableLayoutPanel free=PageContent(page,"Gazely is free to use.","No account or internet connection is needed for this release.",690);
+                FlowLayoutPanel information=FormCard(660);information.Height=230;free.Controls.Add(information,0,2);
+                Label note=CopyLabel("Speech recognition, Bible setup and presentation run on this PC. Account and billing services are reserved for a later release.",11,false);
+                note.MaximumSize=new Size(580,0);information.Controls.Add(note);
+                Button live=new GazelyButton{Text="Go to Live workspace",Width=200,Height=38,Tag="primary"};
+                live.Click+=delegate{SelectPage("workspace");};information.Controls.Add(live);
+                return;
+            }
+            if(GazelyCloudBuild.EmailEntry){
+                TableLayoutPanel welcome=PageContent(page,"Welcome to Gazely.","Enter your email once. After that, Gazely works completely offline on this PC.",690);
+                FlowLayoutPanel entry=FormCard(660);entry.Height=300;welcome.Controls.Add(entry,0,2);
+                Label explanation=CopyLabel("Connect to the internet for this one-time step. No code or password is needed. Your email is recorded with Gazely and saved on this computer, but it is not verified. Speech, Bible settings and history remain local.",11,false);
+                explanation.MaximumSize=new Size(580,0);entry.Controls.Add(explanation);
+                TextBox address=new TextBox{Width=390,Text=cloudAccess.Email,AccessibleName="Email address"};
+                entry.Controls.Add(Field("Email address",address,410));
+                Label emailResult=CopyLabel(cloudAccess.Status,10,false);emailResult.MaximumSize=new Size(580,0);entry.Controls.Add(emailResult);
+                Button continueButton=new GazelyButton{Text="Continue to Gazely",Width=190,Height=38,Tag="primary"};entry.Controls.Add(continueButton);
+                continueButton.Click+=async delegate{
+                    continueButton.Enabled=false;
+                    try{
+                        await cloudAccess.EnterEmail(address.Text);
+                        autoPreviewCheck.Enabled=cloudAccess.CanAutoPrepare;
+                        autoLiveCheck.Enabled=cloudAccess.CanAutomaticLive;
+                        UpdateAudioControls();
+                        SelectPage("workspace");
+                        ShowFirstRunGuide();
+                    }catch(Exception ex){emailResult.Text=ex.Message;}
+                    finally{continueButton.Enabled=true;}
+                };
+                page.Enter+=delegate{address.Text=cloudAccess.Email;emailResult.Text=cloudAccess.Status;};
+                return;
+            }
+            TableLayoutPanel content=PageContent(page,"Your Gazely account.","Activate this computer once. A valid licence keeps listening available offline during a service.",690);
+            FlowLayoutPanel card=FormCard(660);card.Height=800;content.Controls.Add(card,0,2);
+            Label status=CopyLabel(cloudAccess.Status,12,true);status.AutoSize=false;status.Size=new Size(580,44);card.Controls.Add(status);
+            Label detail=CopyLabel("Gazely is free during launch: unlimited listening, all current features and two computers per church. Sign in and activate this PC first. Recognition stays on this PC.",10,false);
+            detail.MaximumSize=new Size(580,0);card.Controls.Add(detail);
+            TextBox email=new TextBox{Width=390,AccessibleName="Account email"};
+            TextBox code=new TextBox{Width=190,AccessibleName="One-time email code"};
+            card.Controls.Add(Field("Email address",email,410));
+            Button send=new GazelyButton{Text="Send one-time code",Width=195,Height=36};card.Controls.Add(send);
+            card.Controls.Add(Field("One-time code",code,210));
+            Button verify=new GazelyButton{Text="Verify code",Width=150,Height=36};card.Controls.Add(verify);
+            Label accountHint=CopyLabel("New church? After verifying, enter its name and two-letter country below. No payment is needed. Existing owners can activate immediately.",9,false);
+            accountHint.MaximumSize=new Size(570,0);card.Controls.Add(accountHint);
+            TextBox church=new TextBox{Width=390,AccessibleName="Church name"};
+            TextBox country=new TextBox{Width=80,Text="NG",MaxLength=2,CharacterCasing=CharacterCasing.Upper,AccessibleName="Two-letter country code"};
+            card.Controls.Add(Field("Church name",church,410));card.Controls.Add(Field("Country code",country,180));
+            Button create=new GazelyButton{Text="Create church",Width=165,Height=36};card.Controls.Add(create);
+            Button activate=new GazelyButton{Text="Activate this computer",Width=215,Height=36,Tag="primary"};card.Controls.Add(activate);
+            Button refresh=new GazelyButton{Text="Refresh licence / usage",Width=220,Height=36};card.Controls.Add(refresh);
+            Button portal=new GazelyButton{Text="Open customer portal",Width=210,Height=36};card.Controls.Add(portal);
+            Label result=CopyLabel("Account actions appear here. No audio or transcript is sent.",9,false);result.MaximumSize=new Size(580,0);card.Controls.Add(result);
+            Action update=delegate{status.Text=cloudAccess.Status;autoPreviewCheck.Enabled=cloudAccess.CanAutoPrepare;
+                autoLiveCheck.Enabled=cloudAccess.CanAutomaticLive;
+                if(!cloudAccess.CanAutoPrepare)autoPreviewCheck.Checked=false;
+                if(!cloudAccess.CanAutomaticLive)autoLiveCheck.Checked=false;
+                UpdateAudioControls();};
+            send.Click+=async delegate{send.Enabled=false;try{await cloudAccess.SendCode(email.Text.Trim());result.Text="Code sent. Check your email.";}
+                catch(Exception ex){result.Text=ex.Message;}finally{send.Enabled=true;update();}};
+            verify.Click+=async delegate{verify.Enabled=false;try{await cloudAccess.VerifyCode(code.Text.Trim());result.Text="Signed in. Activate this computer, or create your church first.";}
+                catch(Exception ex){result.Text=ex.Message;}finally{verify.Enabled=true;update();}};
+            create.Click+=async delegate{create.Enabled=false;try{await cloudAccess.CreateChurch(church.Text.Trim(),country.Text.Trim());result.Text="Church created. Activate this computer next.";}
+                catch(Exception ex){result.Text=ex.Message;}finally{create.Enabled=true;update();}};
+            activate.Click+=async delegate{activate.Enabled=false;try{await cloudAccess.Activate(Environment.MachineName);result.Text="Computer activated. You can return to Live workspace.";update();ShowFirstRunGuide();}
+                catch(Exception ex){result.Text=ex.Message;}finally{activate.Enabled=true;update();}};
+            refresh.Click+=async delegate{refresh.Enabled=false;try{await cloudAccess.Refresh();result.Text="Licence and usage refreshed.";}
+                catch(Exception ex){result.Text=ex.Message;}finally{refresh.Enabled=true;update();}};
+            portal.Click+=delegate{if(GazelyCloudBuild.PortalUrl.StartsWith("https://"))System.Diagnostics.Process.Start(GazelyCloudBuild.PortalUrl);
+                else result.Text="Customer portal is not configured in this candidate.";};
+            page.Enter+=delegate{update();};
+            update();
+        }
+        private void ShowFirstRunGuide()
+        {
+            string seen;
+            var preferences=WorkspacePreferences.Load();
+            if(preferences.TryGetValue("onboarding.shown",out seen) && seen=="True")return;
+            preferences["onboarding.shown"]="True";WorkspacePreferences.Save(preferences);
+            SelectPage("howto");
+            using(Form dialog=new Form{Text="Welcome to Gazely",Size=new Size(650,490),MinimumSize=new Size(560,440),StartPosition=FormStartPosition.CenterParent,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,MinimizeBox=false,Font=new Font("Segoe UI",10)})
+            {
+                TableLayoutPanel body=Vertical(65,74,74,74,-100,54);body.Padding=new Padding(28,22,28,18);dialog.Controls.Add(body);
+                Label title=CopyLabel("Ready for your first service.",22,true);Fill(title);body.Controls.Add(title,0,0);
+                string[] steps={"1  Open EasyWorship 7. Gazely will propose your installed Bible list for review.","2  Choose the input carrying the speaker's voice in Speech setup.","3  Start listening in Live workspace. Review before presenting."};
+                for(int i=0;i<steps.Length;i++){Label step=CopyLabel(steps[i],11,false);Fill(step);body.Controls.Add(step,0,i+1);}
+                Label mini=CopyLabel("Need a smaller view? Mini keeps listening controls and scripture suggestions on your operator screen. The How to tab stays available anytime.",10,false);Fill(mini);mini.AutoSize=false;mini.Tag="muted";body.Controls.Add(mini,0,4);
+                FlowLayoutPanel actions=Row();Button begin=new GazelyButton{Name="BeginBibleSetup",Text="Set up Bible versions",Width=190,Height=38,Tag="primary"};Button later=new GazelyButton{Name="ExploreWorkspace",Text="Explore workspace",Width=160,Height=38};
+                begin.Click+=delegate{dialog.DialogResult=DialogResult.OK;};later.Click+=delegate{dialog.DialogResult=DialogResult.Cancel;};actions.Controls.Add(begin);actions.Controls.Add(later);body.Controls.Add(actions,0,5);
+                GazelyTheme.Apply(dialog);
+                if(dialog.ShowDialog(this)==DialogResult.OK){SelectPage("versions");ShowVersionCatalogueSetup();}
+                else SelectPage("workspace");
+            }
+        }
+        private void ShowVersionCatalogueSetup()
+        {
+            using(Form dialog=new Form())
+            {
+                dialog.Text="Set up Bible versions";dialog.StartPosition=FormStartPosition.CenterParent;
+                dialog.Size=new Size(680,610);dialog.MinimumSize=new Size(500,460);
+                dialog.Padding=new Padding(20);dialog.Font=new Font("Segoe UI",10);
+                Label guidance=new Label{Text="Gazely proposes Bible abbreviations from read-only files on this PC. Compare the entire list with EasyWorship > Scriptures, top to bottom, before saving. Leave out 'More Available...'. Edit one code per line, or separate codes with commas.",Dock=DockStyle.Top,Height=82};
+                TextBox codes=new TextBox{Name="BibleCodes",Multiline=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,Font=new Font("Consolas",11),AccessibleName="Displayed EasyWorship Bible abbreviations"};
+                Label discovery=new Label{Dock=DockStyle.Top,Height=54,AutoEllipsis=true};
+                Button detect=new GazelyButton{Text="Detect from this PC",Width=175,Height=34};
+                Action discover=delegate{
+                    string[] found;string report;
+                    string path=System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),"Softouch","EasyWorship.v7","Plugins","Bibles");
+                    if(LocalBibleCatalogue.TryDiscover(path,out found,out report)){codes.Lines=found;codes.SelectionStart=0;codes.SelectionLength=0;}
+                    discovery.Text=report;
+                };
+                detect.Click+=delegate{discover();};
+                FlowLayoutPanel actions=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=50,FlowDirection=FlowDirection.RightToLeft};
+                Button cancel=new GazelyButton{Text="Cancel",Width=100,Height=34};cancel.Click+=delegate{dialog.DialogResult=DialogResult.Cancel;};
+                Button create=new GazelyButton{Text="Review and save",Width=160,Height=34};
+                create.Click+=delegate{
+                    try{
+                        string generated=VersionCatalogueSetup.BuildMap(codes.Text);
+                        var parsed=VersionCatalogueSetup.ParseMap(generated);
+                        string[] ordered=new string[parsed.Count];foreach(var pair in parsed)ordered[pair.Value]=pair.Key;
+                        string prompt="Save "+ordered.Length+" Bible rows for this PC?\r\nFirst: "+ordered[0]+"   Last: "+ordered[ordered.Length-1]+"\r\n\r\nConfirm the order matches EasyWorship exactly. This changes Gazely's local map only.";
+                        if(MessageBox.Show(dialog,prompt,"Confirm Bible order",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+                        mapEditor.Text=generated;
+                        if(SaveMapFromEditor())dialog.DialogResult=DialogResult.OK;
+                    }catch(FormatException ex){MessageBox.Show(dialog,ex.Message,"Check Bible list",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+                };
+                actions.Controls.Add(cancel);actions.Controls.Add(create);actions.Controls.Add(detect);
+                dialog.Controls.Add(codes);dialog.Controls.Add(discovery);dialog.Controls.Add(actions);dialog.Controls.Add(guidance);
+                dialog.CancelButton=cancel;
+                discover();GazelyTheme.Apply(dialog);
+                if(dialog.ShowDialog(this)==DialogResult.OK)SelectPage("workspace");
+            }
         }
         private void ShowEvidence()
         {

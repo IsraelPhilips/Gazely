@@ -16,6 +16,8 @@ $cases = @(
     @('Genesis five verse seven.', 'Genesis 5:7'),
     @('Genesis 5:7', 'Genesis 5:7'),
     @('John chapter three verse sixteen', 'John 3:16'),
+    @('daniel chapter two and verse forty six', 'Daniel 2:46'),
+    @("luke chapter one verse seventeen that's what they call the spirit of josh man made perfect", 'Luke 1:17'),
     @('John three sixteen', 'John 3:16'),
     @('Romans eight twenty eight', 'Romans 8:28'),
     @('First Corinthians thirteen four', '1 Corinthians 13:4'),
@@ -53,6 +55,9 @@ Assert-Reference $detector 'Turn to John chapter three' ''
 Assert-Reference $detector 'verse sixteen' 'John 3:16'
 Assert-Reference $detector 'Romans chapter eight' ''
 Assert-Reference $detector 'verse twenty eight' 'Romans 8:28'
+$detector.Reset()
+Assert-Reference $detector 'hebrews chapter eleven' ''
+Assert-Reference $detector 'and verse thirty two' 'Hebrews 11:32'
 Assert-Reference $detector 'John came to church' ''
 Assert-Reference $detector 'verse seventeen' ''
 $moreCases = @(

@@ -1,0 +1,11 @@
+[api]
+schemas = ["public", "graphql_public", "gazely"]
+
+[functions.gazely-api]
+verify_jwt = true
+
+[functions.paystack-webhook]
+verify_jwt = false
+
+[functions.gazely-email-entry]
+verify_jwt = false

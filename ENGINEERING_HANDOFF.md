@@ -9,6 +9,256 @@ shipped functionality.
 
 ## Immediate engineering reality
 
+### 15 October selected passage and Mini follow-up
+
+A complete spoken reference now replaces an operator-selected quotation in the
+main Selected Passage panel. The earlier quote remains beneath as a selectable
+alternative. Incomplete later speech does not erase the complete verse, and
+manual reference edits retain their separate operator hold. Mini compact and
+expanded views now show the workspace's KJV scripture preview, with an explicit
+output-version label when the requested version differs. The UI suite exercises
+the reported Luke 1:17 wording through the actual final-transcript path and
+checks Mini rendering and fake-adapter safety.
+The parser also now prefers a complete book/chapter/verse call over a later
+book-like word in the same sentence ("Josh" after "Luke 1:17"); the exact
+reported utterance passes its parser fixture.
+
+Bible navigation now uses the fresh highlighted library code, when readable and
+present in the operator-confirmed map, as the origin for a direct index delta.
+It leaves the list untouched when the code is already selected. An unreadable
+or unmapped selection still uses the top re-anchor for manual navigation;
+automatic output pauses when selection cannot be freshly verified. The 21
+navigation checks and 24-row local catalogue check pass without commanding
+EasyWorship. The parser suite, full UI/Mini suite with the exact Luke utterance,
+passage policy, and 35 adapter lifecycle checks pass. The rebuilt candidate
+SHA256 is `EC93B2D2177C290FF0E5CBDBA39298DF8AA9FEAAC353B137EDFD15EFB31F973D`.
+Only `Gazely.mvp-candidate.exe` was rebuilt for this follow-up; the user asked
+to defer a new installer. Direct relative version movement still needs a live
+EasyWorship readback test on an exposed window; this run used state tests and
+no real presentation command.
+
+### 15 October onboarding and local Bible discovery update
+
+The candidate now proposes the Bible list from read-only SQLite `header.abbrev_name`
+metadata in `C:\ProgramData\Softouch\EasyWorship.v7\Plugins\Bibles\*.ewb` using
+Windows' installed `winsqlite3.dll`. It reads no Bible text and writes nothing to
+EasyWorship. On LIGHT NATION_1, 24 readable modern headers sort to exactly the 24
+rows in the overlapping screenshots; 12 older-format files are excluded. The
+displayed abbreviation is **PIG**, not the earlier handoff's PTG typo; the local
+map and readback allowlist were corrected. This exact match is evidence for this
+PC, not a proven rule that every readable plugin is visible on every profile.
+The proposed list still requires operator comparison with EasyWorship before
+saving; missing/incomplete headers fall back to manual entry. Automatic output
+still needs fresh selected-library verification at the action edge.
+
+First run now opens a short guide, with a permanent How to tab covering Bible
+review, audio, Live workspace and Mini. The Bible dialog prepopulates from the
+local headers; Enter inserts a line, and a successful save returns to Live
+workspace. Mini's operator-monitor dialog explains its controls and display
+safety. Audio-device enumeration now refreshes Start Listening's enabled state
+after its asynchronous load. The candidate was rebuilt and packaged as the
+self-contained offline `releases/Gazely-Setup-20261015-r3.exe` (997,714,194
+bytes; SHA256 `A803435C1C28DC5B77A37034F18540111327F0DB95E2DB5FF82CFAF74A667998`).
+Both bundled speech packages verified offline. A quiet install to an isolated
+workspace folder exited 0, matched the archive receipt and candidate EXE, and
+included 363 manifest files with no prefilled Bible map. The isolated EXE
+launched and created an empty local map and diagnostics; no presentation action
+was issued. New interface/first-run/Mini screenshots and tests passed, as did
+37 adapter checks, 19 navigation checks, passage policy and speech lifecycle.
+The optional chapter-pronunciation recovery could not initialize the installed
+Windows voice in this isolated launch (NullReferenceException); it fails closed
+and remains review-only. Target 8 GB validation and live EasyWorship selection
+readback remain unverified. Earlier r2 installers and production/rollback builds
+remain intact; nothing was downloaded or published.
+
+### Fresh-chat continuation — 15 October 2026
+
+Offline installer update: `releases/Gazely-Setup-20261015-r2.exe` is a
+self-contained 997,710,410-byte per-user Windows setup EXE, built only from the
+candidate and installed local assets. SHA256:
+`89AC374BC1D2F2DB3B63B731FA5937B8B9B1B699D4E2D09AC455E77BF379DB3C`.
+The ZIP payload excludes the local Bible map, preferences, diagnostics, caches,
+staging files and old executables. Its 363 file hashes passed after extraction.
+The setup EXE was run in quiet mode into an isolated workspace install path; both
+speech packages verified offline there, and the installed Gazely EXE launched
+with 31,102 local verses ready and zero assumed Bible indexes. This is an
+installer smoke test on the development PC, not target-machine validation or a
+hosted download. No files were downloaded. The public installer is unsigned;
+Windows may show a publisher warning. Candidate and production/rollback builds
+were not staged or replaced. Latest candidate SHA256:
+`59C8295971F327B912C552F84296B32F271F334A58CFAF86CB848ACA7A16A555`.
+
+Fast-release update: the user waived the proposed two-hour endurance run for
+the first public build and will test the product personally. Two 30-minute paced
+replays passed; the waiver is not a new pass. The candidate now gives each new
+installation an empty `version-map.txt` and a guided Bible versions setup based
+on the abbreviations actually shown in that user's EasyWorship Scriptures list.
+The existing LIGHT NATION_1 map is preserved locally. Setup validates unique
+codes and contiguous positions, then asks for order confirmation; it writes only
+Gazely's local map. The earlier manual-only discovery status is superseded by
+the local-header proposal above, and
+automatic output continues to pause without fresh selected-library readback.
+The final page render, 34 adapter checks, full interface suite and isolated clean
+first-run map check pass; target 8 GB hardware
+and real EasyWorship selection readback remain unverified and must be disclosed
+for the initial release. React and signup/Supabase remain deferred.
+
+15 October continuation: the shared screenshot confirms MSG in both the highlighted
+Scriptures library row and the results table's Trans… column, while the live slide
+still says KJV. A second, overlapping screenshot reaches YOR followed by
+“More Available…” and Collections. Together they show 24 local installed rows,
+ordered by displayed abbreviation: AMP, AMPC, ASV, BBE, BSB, ESV, GNT, HAU,
+HCSB, KJV, LBLA, MSG, NASB, NBLH, NIVA, NKJV, NLT, PIG, RST, RVA, TLV, TPT,
+WB, YOR. The ignored local `version-map.txt` now records contiguous indexes 0–23
+for LIGHT NATION_1. This is screenshot evidence for this profile, not a global map.
+The running EasyWorship process exposes no top-level window to this automation
+session; dynamic catalogue enumeration and table freshness remain unverified.
+Automatic translation output remains paused when the selected library translation
+is unreadable. The candidate recognizes all 24 codes and requires fresh selection
+readback at the action edge even when version navigation is disabled.
+
+The failed soak's time jump has a concrete cause: Windows Power-Troubleshooter
+recorded battery sleep on 14 October and resume on 15 October, matching the
+~69.9-million-ms gap in events.tsv. The original run has no completion summary.
+A new 30-minute replay was started in `benchmarks/runs/mvp-soak-rerun-20261015`;
+it completed with exit code 0, 1,800 audio seconds, all 28,800,000 samples
+covered, 447 finals, 1,796 partials, 0.4-second maximum sampled backlog,
+270-ms EOF flush, 1,789,300,736-byte peak summed RSS, 282 retained candidates
+and zero adapter calls. Largest logged event gap was under 446 ms. This passes
+the paced continuity and no-output check on this PC, not the target 8 GB check.
+The replay harness now requests that Windows keep the system awake and rejects
+wall-clock gaps above 15 seconds for future paced runs.
+
+The 282 retained candidates included 240 review-only paraphrase rows, too many
+for a 30-minute operator session. A new semantic evidence gate requires at least
+seven source words and reranker score >=4.5, with at most three qualified
+alternatives per phrase. It leaves lexical and explicit paths unchanged and grants
+no automatic permission. Offline rescoring of the held-out text fixture retained
+14/15 paraphrase hits and 8/8 negative abstentions; the reported-sermon text
+fixture retained 4/6 hits and improved from 1/2 to 2/2 negative abstentions.
+Requerying 140 unique replay paraphrase evidence strings reduced 305 raw worker
+records to 36 qualified records. The second paced replay of the gated candidate
+at `benchmarks/runs/mvp-soak-gated-20261015` completed with exit code 0:
+1,800 audio seconds, all 28,800,000 samples, 447 finals, 1,796 partials,
+0.6-second maximum sampled backlog, 265-ms EOF flush, 1,934,802,944-byte
+peak summed RSS and zero adapter calls. Largest logged event gap was under
+588 ms. Retained candidates fell from 282 to 74, with paraphrase rows from
+240 to 32; explicit (10), quotation (15), contextual (4) and unresolved (13)
+counts stayed identical. This is a relevance improvement on one replay, not a
+labeled real-sermon precision/recall claim. Summed RSS is above the initial
+1.5-GiB recognition-plus-retrieval budget and is not whole-PC RAM usage.
+The candidate remains unstaged while the short initial-release package and
+first-run checks are completed. Live EasyWorship readback, held-out audio quality
+and target 8 GB coexistence remain unverified limits; the fast-release decision
+above governs the first public build.
+The earlier candidate hash is superseded by the installer update above.
+Production `Gazely.exe` and `Gazely.previous.exe` retain their prior hashes;
+`git diff --check` and the final offline build pass. No replay/native speech
+processes remain running. Local `version-map.txt` is intentionally ignored by
+Git and must be recalibrated for another EasyWorship profile or installation.
+
+Candidate build, 26 adapter checks, 19 navigation checks, passage policy, speech
+lifecycle, 333 parser cases, 19 quotation fixtures and the full Mini/interface
+suite passed on 15 October. Both installed speech packages passed offline hash
+verification. An isolated 7-byte package fixture confirmed cancellation staging
+cleanup, offline resume, corruption detection and preservation of the prior
+package on repair. No EasyWorship file or real presentation command was used.
+The isolated fixture also rejected an invalid offline cache during repair,
+left no staging directory and retained the previous package copy.
+The installed-model `Test-SemanticSearch.ps1 -HeldOut` fixture hit 14/15
+author-written paraphrases and abstained on 8/8 negatives (startup 1,301 ms,
+p95 query 421 ms, worker peak 449 MiB). The miss was 1 Corinthians 3:6; this
+small text fixture is not real-sermon quote recall or a calibration for automatic
+presentation. Semantic candidates remain review-only.
+The verified installed speech packages occupy 164,314,589 bytes (Whisper) and
+737,021,328 bytes (Nemotron), 901,335,917 bytes together before search assets;
+this exceeds the original 750 MB combined target. Both installed license files
+are present. Target 8 GB hardware and end-to-end offline launch remain release
+checks, and the candidate is not staged.
+Adding local search runtime (85,935,762 bytes), search models (153,228,064),
+corpus (13,421,733) and candidate EXE (310,784) gives approximately
+1,154,232,260 bytes for these measured components, excluding settings and any
+additional installer overhead. This footprint needs an explicit release decision.
+
+Read EXECUTION_PLAN.md's newest section first: it adds verified screenshot evidence
+for abbreviation sorting and the library results table's Trans… column. These are
+next investigation targets, not completed automatic discovery. No downloads are
+authorized. Preserve all uncommitted changes; do not reset or overwrite them.
+
+The second soak is **not a pass**: on 15 October no summary.txt exists in
+`benchmarks/runs/mvp-soak-packaged-20261014`, and no NativeReplay/nemo-speech process
+was present. Its tail has approximately 71,052 seconds wall time but only 18,144,000
+audio samples (1,134 seconds at 16 kHz). This is not an uninterrupted 30-minute
+validation; investigate the interruption/time gap and rerun locally when suitable.
+Do not present the earlier “in progress” note below as current status.
+
+Working sources live in `EasyWorshipController_MVP_v6_2_CODEX_HANDOFF`:
+EasyWorshipController.cs (speech/state/retrieval/automation), GazelyInterface.cs
+(workspace/Mini), PresentationAdapters.cs (adapter policy), speech-runtime/
+nemotron_worker.py, Install-SpeechPackage.ps1 and speech-runtime/packages.json.
+Only Gazely.mvp-candidate.exe was rebuilt; production/pending/rollback binaries
+were not replaced. Runtime packages already exist under speech-packages; do not
+download dependencies again. Speech-package checks must use `-Offline`.
+
+Offline regression entry points in that app directory: Test-PassagePolicy.ps1,
+Test-SpeechLifecycle.ps1, Test-PresentationAdapters.ps1, Test-VersionNavigation.ps1,
+Test-ScriptureParser.ps1, Test-QuotationIndex.ps1 and Test-Interface.ps1 (requires a
+new -OutputDirectory). Build with Build-EasyWorshipController.ps1 -OutputFileName
+Gazely.mvp-candidate.exe. The production replay harness is
+`benchmarks/Test-NativeLiveReplay.ps1`; use one ASR evaluation at a time.
+
+Remaining engineering gaps: validate quotation thresholds on held-out/negative
+fixtures; cap qualified alternatives per quotation without losing separate quotes;
+improve generic-match suppression with evidence; finish version discovery/readback;
+exercise installer cancellation/resume/corruption cleanup without network; complete
+package licence/offline startup checks and sustained replay. Review UI-thread
+shutdown/error cleanup and stale callbacks. Verify real 8 GB hardware separately.
+Latest UI suite `mvp-interface-20261014-mini-b` passed, including Mini recovery.
+Signup/Supabase and React remain outside this implementation phase.
+
+### Stable MVP candidate — 14 October 2026 (not staged)
+
+Current work is in `Gazely.mvp-candidate.exe`; the staged build described below
+remains unchanged. No further downloads are authorized as of 14 October. Use
+installed assets and offline checks only; do not invoke an installer without
+`-Offline` during this work.
+
+The candidate introduces evidence-based passage protection and quotation
+promotion, separate preview/live eligibility, editable pending speech settings
+with asynchronous restart, Whisper/Nemotron engine IDs, shared Mini alternatives,
+and migration of Present controls into workspace/Integrations. Standalone runtime
+packages have been assembled locally. Packaging, UI polish and release validation
+remain incomplete; these changes are not a production-readiness claim.
+
+EasyWorship library observation uses bounded read-only UIA/MSAA probes. The actual
+installed application's selection remains unreadable in the probe, so automatic
+output is paused for unverified translation state. Calibrated manual presentation
+remains available. A last observation is labelled with its time and rechecked
+before output; process/catalogue changes and explicit resets reject stale probes.
+Preview and Live now use different automatic-action deduplication keys, allowing
+newly corroborated evidence to progress from preview to live without the preview's
+12-second suppression window blocking it.
+
+Latest offline checks: candidate build, passage policy, speech lifecycle, 26 adapter
+checks (including translation verification) and 19 legacy navigation checks passed.
+An earlier 30-minute paced replay disconnected at approximately 651 seconds; the
+cause is unresolved. A subsequent 80-second replay around that point using the
+standalone Nemotron runtime passed: maximum backlog 0.9 seconds, combined peak
+RSS 1,659,564,032 bytes, final flush approximately 826 ms, no presentation actions.
+A new 30-minute run is in progress at `benchmarks/runs/mvp-soak-packaged-20261014`;
+do not count it as passing until its summary and successful completion exist.
+Held-out automatic-output checks, final UI checks and an actual 8 GB hardware
+validation are still release gates. Preserve the existing rollback and pending
+build until the candidate passes the required checks.
+
+Further offline UI validation: `mvp-interface-20261014-mini-b` passed all six
+pages, passage/translation regressions, Mini recovery, monitor confinement,
+persistence and shared presentation actions. Compact/Expanded screenshots were
+inspected. Mini now includes the existing PNG symbol, larger minimum dimensions
+to fit its controls, and explicit startup/stopping/failure status. The candidate
+rebuilt successfully. The second paced replay has passed the earlier disconnect
+point but still requires its full 30-minute completion result.
+
 ### Active-passage translations — 12 October 2026
 
 Staged after the Nemotron integration. ScriptureDetector now retains both the
@@ -1886,4 +2136,334 @@ Important distinction:
 Do not introduce OCR during every live scripture call.
 
 ---
+
+# 8. CLOUD ACCOUNT / BILLING IMPLEMENTATION (2026-10-15)
+
+The user approved Supabase Auth/Postgres, Paystack subscriptions, an offline
+signed desktop licence, and a small Vercel customer portal. The older
+"Supabase deferred" note is superseded for this work. React remains deferred
+in the Windows app. No tools, models or runtime packages were downloaded.
+
+## Test environment now
+
+- Supabase **Gazely Presenter** (`bpafhxoebexyhugsvfiq`) is explicitly the
+  **test** project. There is no production Supabase project yet.
+- Versioned migrations `202610150001` through `202610150003` were applied to
+  test. `supabase/tests/accounts_security.sql` passed inside a rolled-back
+  transaction: client grants, church scoping, Free device limit, usage
+  idempotency, payment replay, cancellation and refund transitions.
+- `gazely-api` is deployed to test at version 5; `paystack-webhook` at version 4.
+  Missing JWT and forged webhook requests each returned HTTP 401. A renewal
+  without an embedded subscription code is matched only after Paystack
+  verification against the stored customer, plan, currency and amount.
+- The `gazely` PostgREST schema is exposed via a versioned authenticator-role
+  setting; an anonymous query returned HTTP 401 / permission denied. The
+  Supabase RLS advisor reports eight INFO notices for tables with RLS and no
+  policies. This is intentional: clients have no grants and the service-only
+  API mediates access. Avoid adding permissive table policies.
+- The test project's public URL and publishable key are in ignored local
+  `portal/config.json`. No secret keys are in source. The user pasted an old
+  Paystack **test secret** in chat; it must be rotated before use. It was not
+  placed in code or Supabase.
+- A test-only RSA signing pair was generated locally in ignored
+  `supabase/.secrets-test/`. Never reuse it for production. The private key
+  has not been installed in Supabase.
+- `Gazely.mvp-candidate.exe` compiles with an Account page, OTP/activation
+  client, local signature verification, DPAPI storage, and 15-second monotonic
+  usage checkpoints. The candidate is still an evaluation build because no
+  signed lease can be issued until test service secrets and portal origin are
+  configured. `-CloudRelease` bakes public settings into the EXE and enables
+  the listening gate; the public package builder refuses a candidate without
+  a matching cloud-release marker. No installer was built or replaced.
+- The portal is a dependency-free static app in `portal/`; `node build.mjs`
+  and `node --check` passed. It includes a Paystack hosted payment-management
+  link for active subscriptions. It has not been deployed. A GitHub remote already
+  exists: `IsraelPhilips/Gazely`, but these portal changes are uncommitted.
+
+## Required test-project setup (owner/service dashboard)
+
+1. Rotate the exposed Paystack test secret. In **test** Supabase Edge Function
+   secrets, enter the replacement as `PAYSTACK_SECRET_KEY`, plus
+   `PAYSTACK_MODE=test`. Never paste the replacement into chat or Git.
+2. Create four Paystack **NGN test plans** with exact kobo prices: Africa
+   monthly `250000`, Africa yearly `2500000`, outside Africa monthly `665000`,
+   outside Africa yearly `6650000`. Paystack's yearly plan interval is called
+   `annually`. Set their codes as
+   `PAYSTACK_PLAN_NGN_AFRICA_MONTHLY`, `...AFRICA_YEARLY`,
+   `...GLOBAL_MONTHLY`, and `...GLOBAL_YEARLY`. USD prices are prepared in
+   source but checkout remains disabled until merchant confirmation and full
+   USD test flow.
+3. Set `GAZELY_LICENSE_PRIVATE_KEY_PKCS8_BASE64` from the ignored local test
+   private-key file and `GAZELY_LICENSE_PUBLIC_KEY_SPKI_BASE64` from the
+   ignored public-key JSON. Set `GAZELY_PORTAL_ORIGIN` to the exact eventual
+   test portal HTTPS origin. Supabase automatically supplies its project URL
+   and legacy service/anon keys; a publishable key can also be set as
+   `SUPABASE_PUBLISHABLE_KEY`.
+4. In Paystack **test** webhook settings, use
+   `https://bpafhxoebexyhugsvfiq.supabase.co/functions/v1/paystack-webhook`.
+   A checkout return does not grant Pro; only a signed event plus Paystack
+   reconciliation does.
+5. Configure Supabase Auth email OTP to send the actual `{{ .Token }}` code,
+   allowed portal redirect URLs, and custom SMTP before public testing.
+   Resend is the default proposed provider. Production needs its own project,
+   sender domain, keys, SMTP, plans and webhook.
+6. Vercel portal project should use GitHub repo `IsraelPhilips/Gazely` with
+   root directory `portal/`, after the verified portal files are committed and
+   pushed. Set public build env `SUPABASE_URL` and
+   `SUPABASE_PUBLISHABLE_KEY`; `node build.mjs` creates `dist/config.json`.
+   The portal has no npm dependencies. Obtain its HTTPS origin before setting
+   Supabase CORS/callback and cloud-release public config.
+
+## Still unverified / release gate
+
+The test project has no production SMTP, Paystack secret/plans, portal origin
+or signing secret configured yet. No OTP → activation, genuine Paystack
+checkout/webhook, renewal, refund, offline lease, usage reconciliation or
+portal/desktop matching-status end-to-end run has passed. Windows DPAPI
+roundtrip passed outside the sandbox with nonsecret bytes; the full desktop
+account flow still needs a configured test service. Run the acceptance suite,
+then build a cloud-enforced candidate, isolated installer, code-sign and smoke
+test. Existing production/pending/rollback builds must remain untouched.
+In particular, exercise a failed renewal followed by a fresh checkout and
+confirm the old Paystack subscription cannot charge again; this provider
+sequence is not yet proven and must block public checkout until resolved.
+
+---
+
+# 9. FREE-LAUNCH ACCOUNT POLICY (2026-10-17)
+
+The user changed the launch policy: **every signed-in church gets all current
+features free**. Accounts and device activation remain required. This
+supersedes the earlier launch pricing/Free-limit policy until an administrator
+activates billing. Pricing, Paystack reconciliation and paid entitlements stay
+in source for a later paid launch, but checkout is refused while billing is
+disabled. Do not configure or enable public Paystack checkout for the free
+release.
+
+- Test Supabase migrations `202610170001` and `202610170002` are applied.
+  `gazely.release_settings.billing_enabled` is `false` by default and has no
+  client grants. The test project still has `billing_enabled=false` after the
+  rolled-back checks. Only an administrator can change it in Supabase SQL.
+- Free launch issues a signed, device-bound seven-day lease with unlimited
+  listening, automation, Mini and manual presentation. Two devices are
+  allowed per church. No audio or transcript is uploaded. Old paid-mode Free
+  semantics (one device and 3,600 seconds) apply only after billing is on.
+- The portal hides its billing controls during free launch. `gazely-api`
+  refuses checkout even if a client calls it directly. Test deployment:
+  `gazely-api` version 6. `paystack-webhook` remains version 4.
+- The billing switch is one-way. On activation, it starts a new server usage
+  anniversary so previous free-launch listening does not consume the paid-mode
+  Free allowance. Old signed leases can continue offline for at most seven
+  days and their delayed usage reconciles into the old period. Plan the switch
+  with that seven-day transition in mind.
+- `supabase/tests/accounts_security.sql` passes in a rolled-back transaction
+  for launch-free two-seat access, future paid-mode one-seat Free access,
+  cross-church denial, old/new usage periods and payment transitions. A local
+  mocked Edge Function call confirmed authenticated checkout is refused before
+  Paystack, and status tests covered launch-free, billed Free and Pro. The
+  Windows signed-lease test, candidate compilation and portal build pass.
+
+To activate billing **later**, after Paystack and the paid flows pass their
+acceptance tests, an administrator can execute in the production Supabase SQL
+editor: `update gazely.release_settings set billing_enabled=true where
+singleton=true;`. The trigger records the transition time. Do not perform
+that action during the free launch. Turning billing back off is deliberately
+rejected by the database trigger.
+
+The free public release still needs production Supabase, custom SMTP/OTP,
+production licence signing, portal deployment, an authenticated desktop-to-
+portal test, and a signed installer smoke test. The existing evaluation
+candidate is not a cloud-enforced public build. No installer was built here.
+
+## Free-launch email entry change (2026-10-17, latest)
+
+The user deferred OTP and Google sign-in. The current candidate requires an
+email address before listening or opening Mini. It sends the address and a
+random installation ID to the `gazely-email-entry` Edge Function, waits for
+confirmation, then stores the address with Windows DPAPI for subsequent offline
+starts. The address is **unverified**; it is not a Supabase Auth user or church
+membership and grants no licence, billing, device-seat or portal rights. The
+user can enter any syntactically valid email. A new installation needs network
+access for its first submission; existing submitted installations work offline.
+
+`gazely.email_entries` is a private, RLS-enabled service-only table in the
+**test** project; migration `202610170003_email_entries.sql` was applied and
+`gazely-email-entry` version 1 deployed. The public endpoint validates input
+and records only email, installation ID and timestamps. Public endpoints can
+still receive spam; add abuse controls before substantial public traffic.
+Anonymous client roles have no table access. No sermon audio or transcript is
+uploaded. An email entry cannot enforce church/device limits; those depend on
+verified sign-in later.
+
+`Gazely.mvp-candidate.exe` now uses `-EmailEntry` with the test project's
+public URL/key. `Test-EmailEntry.ps1` passed first-use block, server submission,
+unlock and protected local reload. A malformed email was rejected by the
+endpoint. Test entries were removed. Packaging and installer guards reject
+this test-project build. For a public installer, provision a separate production
+Supabase project, apply the migration and deploy the endpoint, build with its
+public config, then run an isolated installer smoke test. The user has asked
+not to build the installer yet. OTP, Google sign-in, portal account management,
+Paystack checkout and paid access remain deferred. The earlier free-launch
+signed-licence path remains in source for later verified authentication.
+
+## Final-installer request status (2026-10-17)
+
+The user authorized building the final installer. A separate production
+Supabase project, `Gazely Presenter Production` (`kbuiyukrcxxotpksryqt`), was
+created in the selected organization after Supabase quoted $0/month. The
+private `email_entries` migration is applied there. The email-intake function
+is **not deployed to production**. Automatic approval review rejected a public
+function using service-role writes because of persistent abuse and data
+integrity risk; it also rejected the attempted narrower anonymous table-insert
+design because it would permit unbounded spam/storage writes. No rejected
+deployment or anonymous grant was applied. The tested intake remains on the
+test project only. Do not build or label a test-project candidate as final.
+
+Both speech packages passed installed/offline status checks, and the interface
+suite completed successfully in `benchmarks/runs/ui-email-release-20261017`.
+No usable code-signing certificate was found in CurrentUser or LocalMachine
+personal stores. The release still needs an approved production email-intake
+path, a production-configured candidate, packaging, isolated installer smoke
+test, and a decision on code signing. No installer has been built.
+
+## Offline free-access release decision (2026-10-17, latest)
+
+The user removed the sign-in/email gate for the first public build. Gazely now
+opens the Live workspace and first-run guide with no account or internet
+connection. Listening, Mini and existing automation are available without a
+cloud licence. The Account navigation item is hidden in this release; the
+backend, migrations, portal, payment and verified-auth code remain in source
+for later work. No personal data is submitted to Supabase by this build.
+
+`Gazely.mvp-candidate.exe` was rebuilt with `-FreeAccess` and has a matching
+`free_offline`/`offline` release marker with no Supabase or portal URL.
+`Test-FreeAccess.ps1`, the signed-lease unit checks and the complete interface
+suite (`benchmarks/runs/ui-free-release-20261017-r2`) pass. Installed Whisper
+and Nemotron packages passed offline verification. Previous installers in
+`releases/` remain intact. The user approved preparing an unsigned installer
+for review; a trusted publisher signature can be added later.
+
+The new offline package is `releases/Gazely-Windows-Free-20261017.zip`
+(SHA-256 `D239CEF731EE0088408619BC435A792965161F69D01ADD78273443E608FA70FB`).
+The unsigned installer is `releases/Gazely-Setup-Free-20261017.exe`,
+997,724,255 bytes, SHA-256
+`1AA3D7A1EBD5A560F6A7C2A5B8C1D9308E9912D413DF077861146ED1B70AE5F9`.
+An isolated `--quiet --no-shortcuts` install returned exit code 0; its 364-file
+manifest and installed EXE matched the candidate. The isolated test folder
+was removed after verification. No older installer or installed Gazely build
+was changed. This build is unsigned; Windows can show Unknown publisher.
+
+## Installer and live-selection follow-up (2026-10-17)
+
+The operator reported an older Gazely installation absent from Windows Installed
+apps, repeated Bible-version top-to-row scrolling, and a newly spoken reference
+remaining beneath an operator-selected main passage. The old installer created
+a per-user versioned folder and shared Start Menu shortcut without registering
+an uninstaller. Its installation is unchanged. The new installer registers its
+own Installed apps entry with a guarded per-version uninstaller; settings and
+history outside the versioned folder are preserved.
+
+Manual EasyWorship actions now reuse a completed same-process version position
+when the read-only selected-row probe is unavailable. A readable row still wins;
+automatic output still requires fresh verification. Unknown position, process
+change and explicit Reset retain the conservative top re-anchor. Complete spoken
+explicit/correction/contextual/navigation references now replace operator-picked
+quotes, history rows and completed drafts in the main SP panel; the prior
+selected passage stays below. In-progress edits still hold the panel.
+
+Navigation and adapter tests passed (24 and 35 checks), and the full free-access
+interface suite passed in `benchmarks/runs/ui-free-release-20261017-r4`, including
+new operator-selection regression. Candidate rebuilt with `-FreeAccess`.
+New archive `releases/Gazely-Windows-Free-20261017-r2.zip` has 365 manifest
+files; new unsigned installer `releases/Gazely-Setup-Free-20261017-r2.exe` has
+SHA-256 `9357D1520F60FF436838C9D175E8FAB52AD28D09523BAC7496B92E79084687AA`.
+Isolated no-shortcut install returned exit 0 and installed EXE hash matched the
+candidate. EasyWorship had no exposed main window during this turn, so real
+library readback and live presentation remain unverified. Existing packages and
+installed builds were not replaced.
+
+## Daniel/SP and automatic-output clarification (2026-10-17)
+
+The operator clarified that EasyWorship opening without projection happened on
+the previous install; automatic Live has not yet been tested on r2. In the new
+screenshot, the footer specifically says requested KJV is not mapped; the
+operator then confirmed the Bible versions had not been saved. No current-build
+automatic presentation failure has been established. Fresh selected-library
+verification remains required before any automatic output.
+
+The actual transcript `daniel chapter two and verse forty six` failed the
+parser because `TryParseChapterVerse` did not allow `and` immediately before
+an explicit verse marker. Quotation search separately found Daniel 2:46,
+explaining why it appeared only in Detections while SP showed Daniel. The
+parser now accepts that narrow conjunction. Exact Daniel and split
+`hebrews chapter eleven` / `and verse thirty two` cases pass parser and full
+interface tests (`benchmarks/runs/ui-free-release-20261017-r5`). The split
+Hebrews result reaches SP but remains review-required for automatic Live; this
+is intentional until live operator feedback supports a narrower safe promotion.
+
+Candidate rebuilt in offline free mode. Separate archive
+`releases/Gazely-Windows-Free-20261017-r3.zip` and unsigned installer
+`releases/Gazely-Setup-Free-20261017-r3.exe` were created without changing
+earlier builds. Installer SHA-256:
+`DCD87AD34C7F0FB82023A490EA41BBF2CAA13385BA255CFCB81EDF9EC3351A16`.
+An isolated no-shortcut install returned exit 0; its 365-file manifest and
+installed EXE matched the candidate. The smoke folder was removed.
+
+## Automatic EasyWorship library readback (2026-10-17)
+
+The operator supplied the decisive log: automatic Isaiah 53:1 found EasyWorship
+and activated Scriptures, then stopped with "library translation is not
+readable" before any live Enter. The Bible map includes KJV=9; map position is
+not proof of current selection. Manual Present succeeds because it is an
+operator-authorized action that can use a calibrated position without a fresh
+library readback. This is the precise auto/manual behavior difference. The
+Integrations `Check library selection` result showed "UIA exposed no uniquely
+selected translation"; the prior MSAA child-state fallback also found none.
+
+The read-only MSAA fallback now checks `accSelection` directly before scanning
+child selected-state flags, per Windows accessibility semantics. A standard
+Windows selected list test and the full free-access interface suite passed in
+`benchmarks/runs/ui-free-release-20261017-r8`. EasyWorship's custom list could
+not be exercised from this execution session, which sees process handles but
+no interactive app windows. Do not claim its readback or automatic projection
+is fixed until the operator tests this candidate. If it remains unreadable,
+automatic output must stay paused; inspect the new specific probe result and
+develop another reliable read-only selection signal. Never treat the live KJV
+slide or resource filenames as proof of library selection.
+
+Candidate rebuilt in free offline mode. A separate unsigned
+`releases/Gazely-Setup-Free-20261017-r4.exe` (SHA-256
+`49962B552C919EAE161DFE4C4CC8350891E43B2CDA38D6ABB347078D419136E1`)
+passed a 365-file isolated no-shortcut install and installed-EXE hash check.
+Earlier installers and installed versions remain intact.
+
+## KJV-first tracked automatic presentation (2026-10-17, latest)
+
+The user explicitly chose KJV-first operation and accepted that direct Bible
+changes inside EasyWorship can make Gazely's tracked position stale. Manual
+Present and automatic Live now call the same EasyWorship version-selection and
+reference-entry path. Both require the requested version in the saved local
+map. A readable library row is used as the origin and a readable mismatch
+stops the send; an unreadable row uses the mapped/tracked position rather than
+blocking automatic output. The old automatic-only readback checks before live
+Enter were removed. The existing reference-control readback still must match
+before either path sends Enter. Speech/quotation review policy is unchanged:
+not every SP candidate is eligible for automatic Live.
+
+The saved map seeds an assumed KJV position at process attachment. Repeated
+KJV sends do not scroll. Explicit Reset version tracking discards the position
+and causes a top re-anchor on the next send. Because external EasyWorship
+changes are not visible, operators should use Reset after switching versions
+directly there. Do not describe a successful command as verified audience
+output. UI copy and package README now describe this policy.
+
+Parser, 24 navigation, 33 adapter, free-access and full interface tests passed
+(`benchmarks/runs/ui-free-release-20261017-r11`). Candidate rebuilt in
+`free_offline` mode. New unsigned installer
+`releases/Gazely-Setup-Free-20261017-r5.exe` SHA-256
+`615A42B3A248085B4C64423C8C1F6BF549D6C57D784D11C4883AE763B0084390`
+passed isolated no-shortcut installation: 365-file manifest, installed EXE
+matching candidate. No EasyWorship live action was run from this execution
+session, so automatic projection still needs operator confirmation. Older
+installers and installed builds remain intact.
 

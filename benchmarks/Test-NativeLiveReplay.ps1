@@ -22,12 +22,19 @@ internal sealed class NoOutputAdapter : IPresentationAdapter {
  public PresentationResult Execute(PresentationIntent intent,Func<bool> canceled){Calls++;throw new Exception("Replay must never present");}
 }
 internal static class NativeLiveReplay {
+ [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+ private static extern uint SetThreadExecutionState(uint flags);
  private static System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
  private static object Get(object o,string name){return o.GetType().GetField(name,flags).GetValue(o);}
  private static void Set(object o,string name,object value){o.GetType().GetField(name,flags).SetValue(o,value);}
  private static void Call(object o,string name,params object[] args){o.GetType().GetMethod(name,flags).Invoke(o,args);}
  private static string Cell(string text){return (text??"").Replace("\t"," ").Replace("\r"," ").Replace("\n"," ");}
- [STAThread]public static int Main(string[] args){try{return Run(args);}catch(Exception e){Console.Error.WriteLine(e);return 1;}}
+ [STAThread]public static int Main(string[] args){
+  // Keep this paced replay awake; the previous run was interrupted by battery sleep.
+  SetThreadExecutionState(0x80000001);
+  try{return Run(args);}catch(Exception e){Console.Error.WriteLine(e);return 1;}
+  finally{SetThreadExecutionState(0x80000000);}
+ }
  private static int Run(string[] args){
   Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);Application.EnableVisualStyles();
   WorkspacePreferences.PathOverride=Path.Combine(args[1],"preferences.txt");
@@ -37,7 +44,7 @@ internal static class NativeLiveReplay {
   using(var form=new MainForm())using(var engine=new StreamingSpeechEngine())using(var log=new StreamWriter(Path.Combine(args[1],"events.tsv"))){
    var adapter=new NoOutputAdapter();var destination=new PresentationCoordinator(adapter);destination.SetEnabled(true);Set(form,"destination",destination);
    form.ShowInTaskbar=false;form.StartPosition=FormStartPosition.Manual;form.Location=new Point(-20000,-20000);form.Show();Application.DoEvents();
-   ((ComboBox)Get(form,"speechEngineCombo")).SelectedIndex=4;
+   foreach(SpeechEngineChoice choice in ((ComboBox)Get(form,"speechEngineCombo")).Items)if(choice.Id=="nemotron")((ComboBox)Get(form,"speechEngineCombo")).SelectedItem=choice;
    Set(form,"useNativeStreaming",true);Set(form,"streamingEngine",engine);Set(form,"listeningSession",777);Set(form,"audioListening",true);
    log.WriteLine("wall_ms\tkind\tid\tstart_sample\tend_sample\ttext");
    engine.Progress=delegate(long received,long acknowledged,int queued,double turnaround){lock(log){log.WriteLine(clock.Elapsed.TotalMilliseconds.ToString("F1")+"\ttransport\t0\t"+received+"\t"+acknowledged+"\tqueue_bytes="+queued+";ack_roundtrip_ms="+turnaround);log.Flush();}};
@@ -52,14 +59,18 @@ internal static class NativeLiveReplay {
     if(final)Call(form,"OnFinalTranscript",text,1.0,"Nemotron",delay,777,chunk);else Call(form,"OnPartialTranscript",text,chunk,delay);
    };
    engine.Start("nemotron",777,delegate(string message){Console.Error.WriteLine(message);});clock.Start();
-   string previous="";
+   string previous="";long lastResourceSample=-1000,lastPumpMs=-1;
    Action pump=delegate{
+    long nowMs=clock.ElapsedMilliseconds;
+    if(lastPumpMs>=0 && nowMs-lastPumpMs>15000)
+     throw new Exception("Paced replay interrupted by a wall-clock gap of "+(nowMs-lastPumpMs)+" ms");
+    lastPumpMs=nowMs;
     Application.DoEvents();backlog=Math.Max(backlog,engine.BacklogSeconds);
-    long memory=Process.GetCurrentProcess().WorkingSet64;
+    if(clock.ElapsedMilliseconds-lastResourceSample>=1000){lastResourceSample=clock.ElapsedMilliseconds;long memory=Process.GetCurrentProcess().WorkingSet64;
     try{var speechWorker=(Process)Get(engine,"worker");speechWorker.Refresh();memory+=speechWorker.WorkingSet64;if(engine.WorkerProcessId>0 && engine.WorkerProcessId!=speechWorker.Id)using(var python=Process.GetProcessById(engine.WorkerProcessId))memory+=python.WorkingSet64;using(var native=Process.GetProcessById(engine.NativeProcessId))memory+=native.WorkingSet64;}catch(InvalidOperationException){}catch(ArgumentException){}
     var search=(OfflineSemanticSearch)Get(form,"semanticSearch");
     Process searchWorker=(Process)Get(search,"worker");if(searchWorker!=null)try{searchWorker.Refresh();memory+=searchWorker.WorkingSet64;}catch(InvalidOperationException){}
-    peak=Math.Max(peak,memory);
+    peak=Math.Max(peak,memory);lock(log){log.WriteLine(clock.ElapsedMilliseconds+"\tresources\t0\t0\t0\trss_bytes="+memory+";quote_jobs="+((Queue<Action>)Get(form,"quotationJobs")).Count);log.Flush();}}
     string selected=((Label)Get(form,"detectedReferenceLabel")).Text;
     if(selected!=previous){lock(log){log.WriteLine(clock.Elapsed.TotalMilliseconds.ToString("F1")+"\tSP\t0\t0\t0\t"+Cell(selected));log.Flush();}previous=selected;}
     lock(errors)if(errors.Count>0)throw new Exception(string.Join("; ",errors.ToArray()));

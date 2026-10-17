@@ -376,6 +376,13 @@ comparable calibrated probabilities.
 
 ### Context and result merging
 
+Current candidate quality gate: review-only semantic candidates need at least
+seven words of source evidence and a MiniLM reranker score of 4.5 or higher;
+each phrase keeps at most three qualified alternatives. A completed 30-minute
+paced replay reduced paraphrase rows from 240 to 32 while preserving its 10
+explicit and 15 lexical quotation rows. This does not establish real-sermon
+precision or authorize automatic paraphrase output.
+
 `FindQuotation` searches the current transcript, lexical context and explicit
 references found in separate book spans. It merges distinct references rather than
 using a learned fusion model or reciprocal-rank fusion.
@@ -503,10 +510,33 @@ delivery guarantee** across crashes/restarts.
 
 `EasyWorship7Adapter` delegates to `EasyWorshipAutomation`, which uses Windows UI
 automation and input operations. New speech references default to KJV unless the
-speaker requests another translation. `BibleVersionPosition` tracks the selection
-to skip unnecessary version-list navigation; it assumes the initial KJV selection.
-Reliable readback of manual operator version changes is not implemented. Reset
-version tracking is the current explicit invalidation mechanism.
+speaker requests another translation. `BibleVersionPosition` tracks navigation,
+while bounded read-only UIA/MSAA probes try to observe the selected library
+translation. Manual Present and automatic Live now use the same mapped/tracked
+position when readback is unavailable. A saved map seeds the KJV-first startup
+assumption; completed navigation is reused in the same EasyWorship process, so
+repeated Present on the same version sends no scroll keys. A fresh readable row
+overrides that tracked position, and a readable mismatch blocks the send. Reset
+version tracking discards the position and reanchors from the top on the next
+send. An external EasyWorship version change can leave the tracker out of sync;
+the operator should reset tracking after changing versions there. The visible
+library is sorted by abbreviation. Overlapping screenshots verified the complete
+24-row LIGHT NATION_1 list, but this order is specific to that EasyWorship profile;
+the results table's Trans… live readback remains unverified. The live slide is a
+separate state and cannot establish library selection. Reset version tracking
+explicitly invalidates cached position.
+
+A new installation starts with no assumed version indexes until its map is saved. The first-run guide
+leads to **Bible versions**, where read-only `header.abbrev_name` values from the
+modern local `.ewb` SQLite plugins propose a code-sorted list. The user compares
+it with the full visible EasyWorship Scriptures library, edits mismatches, and
+confirms before Gazely saves its own `version-map.txt`. Enter and commas both
+separate manual entries. Older-format or unreadable plugins cannot establish the
+visible list, so guided manual entry remains available. Exclude “More Available…”
+and recheck after EasyWorship profile or catalogue changes. Saving returns to
+Live workspace. A valid map does not prove the selected library translation;
+the KJV-first operating assumption is deliberate for this release. Direct
+EasyWorship selection changes cannot currently be detected reliably.
 
 The adapter returns `SentUnverified`, not `LiveVerified`: successfully issuing the
 operation is not proof of the actual audience screen. Stop/disable can invalidate
@@ -520,6 +550,20 @@ scripture-specific; songs, slides and media will require a broader content contr
 Automatic adapter downloads/plugin discovery are not already built.
 
 ## 8. Build, test and debug workflow
+
+For an offline Windows setup build, run `Build-PublicPackage.ps1` after building
+`Gazely.mvp-candidate.exe`, then `Build-WindowsInstaller.ps1` with the ZIP path.
+The package builder selects required files explicitly, verifies both installed
+speech packages offline and excludes the local Bible map and preferences. The
+installer embeds the ZIP and `Install-Gazely.ps1` in one EXE. The install script
+checks the archive and file manifest before moving files into a versioned folder
+under `%LOCALAPPDATA%/Programs/Gazely`; it creates a Start Menu shortcut and a
+per-user Windows Installed apps entry without admin rights. Each package has an
+uninstaller that removes its own versioned folder and its shortcut only if that
+shortcut still targets it. `%LOCALAPPDATA%/Gazely` settings and history stay in
+place. Earlier installers did not register an uninstaller, so remove their
+versioned folder manually after closing Gazely if no longer needed. No download
+is part of this path. The setup EXE is unsigned.
 
 From the repository root, use **Windows PowerShell** for the desktop build:
 

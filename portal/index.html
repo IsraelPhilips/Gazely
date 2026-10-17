@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Gazely account</title><link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script>
+</head>
+<body>
+  <header><div class="brand"><span class="mark">◒</span><span>Gazely</span></div><span class="eyebrow">Your church account</span></header>
+  <main>
+    <div id="notice" role="status" aria-live="polite"></div>
+    <section id="signin" class="card narrow" hidden>
+      <p class="kicker">Secure sign in</p><h1>Welcome back.</h1>
+      <p>Enter your email. We’ll send a one-time code; no password is needed.</p>
+      <form id="email-form"><label>Email address<input id="email" type="email" autocomplete="email" required></label><button>Send code</button></form>
+      <form id="code-form" hidden><label>One-time code<input id="code" inputmode="numeric" autocomplete="one-time-code" required></label><button>Verify and continue</button></form>
+    </section>
+    <section id="new-church" class="card narrow" hidden>
+      <p class="kicker">First setup</p><h1>Tell us about your church.</h1>
+      <p>Gazely is free during launch. Your country is saved for future account settings; no payment is needed.</p>
+      <form id="church-form"><label>Church name<input id="church-name" maxlength="120" required></label>
+        <label>Billing country<select id="country" required></select></label><button>Create account</button></form>
+    </section>
+    <section id="dashboard" hidden>
+      <div class="hero"><div><p class="kicker">Account overview</p><h1 id="church-title">Your church</h1><p id="plan-caption"></p></div><button class="quiet" id="signout">Sign out</button></div>
+      <div class="grid">
+        <section class="card"><p class="kicker">Plan</p><h2 id="plan-name">Free</h2><p id="renewal"></p><p id="pending"></p></section>
+        <section class="card"><p class="kicker">Listening</p><h2 id="usage-value">—</h2><p id="usage-detail"></p><div class="track"><div id="usage-fill"></div></div></section>
+      </div>
+      <section class="card"><div class="split"><div><p class="kicker">Devices</p><h2>Activated computers</h2></div><p id="device-limit"></p></div><div id="devices"></div><p class="muted">Deactivating a computer frees its seat. That computer needs a fresh licence before listening again.</p></section>
+      <section id="billing" class="card" hidden><p class="kicker">Billing</p><h2>Choose your next step.</h2><p id="price-note"></p>
+        <div class="actions"><button id="monthly">Upgrade monthly</button><button id="yearly" class="secondary">Upgrade yearly</button><button id="manage" class="secondary" hidden>Manage payment method</button><button id="cancel" class="quiet" hidden>Cancel at period end</button></div>
+        <p id="repair" hidden>Renewal failed. Paystack does not retry the failed charge. Start a new hosted checkout to repair payment, or update your card for future charges.</p>
+        <p class="muted">Checkout is hosted by Paystack. Returning here does not change your plan until payment is verified.</p></section>
+    </section>
+  </main>
+  <footer>Speech and scripture history stay on your computer. The account service receives device and listening totals only.</footer>
+</body></html>

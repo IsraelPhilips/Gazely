@@ -198,6 +198,13 @@ def main():
         if errors:
             raise errors[0]
         emit('DONE')
+    except Exception as exc:
+        # Preserve the native exit status before cleanup; a lost socket alone
+        # cannot distinguish a server crash from a transport interruption.
+        time.sleep(.1)
+        native_exit = process.poll()
+        raise RuntimeError(f'{type(exc).__name__}: {exc}; native_exit={native_exit}; '
+                           f'audio_received={received[0] / 16000:.3f}s') from exc
     finally:
         completed.set()
         if ws:

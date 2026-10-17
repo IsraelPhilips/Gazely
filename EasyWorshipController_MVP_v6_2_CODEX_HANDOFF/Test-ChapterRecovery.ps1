@@ -31,5 +31,5 @@ namespace EasyWorshipControllerMvp {
  }
 }
 '@
-Add-Type -TypeDefinition $code -ReferencedAssemblies $speech
+Add-Type -TypeDefinition $code -ReferencedAssemblies $speech -IgnoreWarnings
 [EasyWorshipControllerMvp.ChapterRecoveryTests]::Run()

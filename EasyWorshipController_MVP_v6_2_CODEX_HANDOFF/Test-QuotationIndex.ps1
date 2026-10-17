@@ -3,10 +3,18 @@ $ErrorActionPreference = 'Stop'
 $source = Get-Content (Join-Path $PSScriptRoot 'EasyWorshipController.cs') -Raw -Encoding UTF8
 $start = $source.IndexOf('    internal sealed class ScriptureDetection')
 $end = $source.IndexOf('    internal sealed class UtteranceSegmenter')
-$core = 'using System; using System.Collections.Generic; using System.Text; using System.Text.RegularExpressions; ' + $source.Substring($start, $end-$start).Replace('internal sealed class', 'public sealed class')
+$core = 'using System; using System.Collections.Generic; using System.Text; using System.Text.RegularExpressions; ' + $source.Substring($start, $end-$start).Replace('internal sealed class', 'public sealed class').Replace('internal static class SemanticEvidencePolicy','public static class SemanticEvidencePolicy')
 Add-Type -TypeDefinition $core
 $clock = [Diagnostics.Stopwatch]::StartNew()
 $index = New-Object ScriptureQuoteIndex (Join-Path $PSScriptRoot 'corpus/kjv.tsv')
+$strong='People who wait on the Lord will get fresh strength and rise up like eagles'
+if(![SemanticEvidencePolicy]::Qualified($strong,7.8) -or
+   [SemanticEvidencePolicy]::Qualified($strong,3.0) -or
+   [SemanticEvidencePolicy]::Qualified('pray father we thank you',7.8)){
+    throw 'Semantic evidence gate accepted weak or rejected supported wording'
+}
+$reported='and all these other things shall be added onto you'
+if(![SemanticEvidencePolicy]::Qualified($reported,7.65)) {throw 'Reported split quotation was suppressed'}
 $loadMs = $clock.ElapsedMilliseconds
 $speechParser=New-Object ScriptureDetector
 $announced=$speechParser.Feed('in Genesis chapter 49 verses 3 and verse 4')
