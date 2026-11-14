@@ -1,5 +1,174 @@
 # Gazely engineering handoff
 
+### 14 November — Phase 0 measurement and Phase 1 automation timing
+
+**Phase 0** (measurement only, no product change) is recorded in
+`benchmarks/PHASE0_FINDINGS.md`. Two results govern the work that follows.
+
+Discourse cues survive ASR. Across 556 real transcribed utterances, directive
+phrasing ("go to", "let's start from") appeared 13 times and deictic/anaphoric
+phrasing 8 times, including a clean anaphoric reference — `that romans that we
+started with` — which is precisely the pattern the scripture plan needs. The
+plan layer is therefore reasoning over text that actually arrives. Two gaps are
+open and must be closed before the plan is claimed to work: no real enumeration
+utterance ("we'd be reading three scriptures") and no ordinal utterance
+("the final scripture") exist in the retained evidence.
+
+Latency baseline, from 39 real samples in `2026-09-30-sermon/controller-timing.csv`:
+inference median 1,245 ms / p95 2,676 ms; ready (last voiced frame to detection)
+median 1,629 ms / p95 2,919 ms; queue+dispatch median 243 ms. EasyWorship
+automation adds a further ~1.1–1.5 s of deliberate fixed waits, so end-to-end
+detection-to-live was roughly 2.9 s median and 4.4 s p95.
+
+**Phase 1** (speed only; no policy change) replaces blind sleeps with readback
+confirmation and adds a guarded incremental entry path in
+`EasyWorshipAutomation.SetScriptureReference`. Readback was measured against the
+running EasyWorship install: one `Current.Name` read costs 0.104 ms, so polling
+is cheaper than a single fixed delay.
+
+- `WaitForReference` / `ReferenceHasPrefix` poll the compound control's readback
+  until it matches or a ceiling expires. On expiry the path does exactly what it
+  did before — the original `Pause(FieldDelayMs)` / `Pause(220)` — so the worst
+  case is the previous behaviour plus the poll budget.
+- The incremental path triggers only when the reference already reads as the
+  wanted book+chapter (the state Auto speculation will produce). It then enters
+  the verse alone, saving `ClickDelayMs` plus two `Shift+Tab` and the book and
+  chapter entry. It is guarded: if the readback does not verify, the full
+  sequence runs. Nothing on this path sends Enter before the `goLive` check.
+
+Read-only observation only: EasyWorship was never driven by this work. No
+keystrokes, mouse clicks, reference changes or Enter were sent, and no
+EasyWorship file, database or configuration was touched. One EasyWorship
+instance is running and was read but not modified.
+
+Validation: build (warnings as errors) passed; parser, quotation, adapter (33),
+passage policy, version navigation (24) and chapter recovery (9) suites pass;
+speech lifecycle passes 3/3; MiniOnly interface and FreeAccess checks pass. The
+full interface suite still stops at the pre-existing
+`Speech overwrote an operator edit` assertion. Candidate SHA-256
+`36DD68F0E7472FA51D4C908977A045479F58106ECA24AF4611744C62B514676A`; marker
+matches. Production `Gazely.exe` (`82D30869…`) and rollback
+`Gazely.previous.exe` (`A366326E…`) unchanged. No installer was built. The
+latency improvement is not yet measured end-to-end against a real EasyWorship
+send, which this session cannot perform.
+
+### 14 November — stale speech-stop completing a later start
+
+`Test-SpeechLifecycle.ps1` failed intermittently (4 of 5 runs) at the startup
+fallback assertion added with the Parakeet work — never at the runtime-failover
+assertions. The failure was a real race in the application, not a fixture defect.
+Log evidence: after `nemotron startup failed` the expected
+`Startup fallback active: Parakeet Realtime.` was logged, but the session then
+never reached `Audio source started`/`Audio listening active` and settled as
+`Stopped` rather than `Failed`. State at failure was `starts=10` (parakeet load
+reached), `native=True`, `epoch=1`, `stream=non-null`, `listening=False`,
+`starting=False`.
+
+Root cause: `StopListening` declares its deferred post-flush `BeginInvoke`
+completion inline. A stale completion from an earlier session could be pumped
+*after* a newer session had begun starting. It called `StopListening()`
+unguarded, which incremented `listeningSession` and cleared `startingListening`,
+orphaning the in-flight start; that start then took the
+`startupSession!=listeningSession` early return and left listening `Stopped`
+without reaching the `catch`/`Failed` path. A stack probe confirmed the caller of
+the stray stop was `<StopListening>b__84`, the deferred completion, running with
+`audioListening=False` while `startingListening=True` on generation 11.
+
+Fix: the drain captures `int drainSession=listeningSession`, and the deferred
+completion returns early when `drainSession!=listeningSession`. The drain body is
+only reachable when `audioListening` was already false, so the node's own
+drain-then-stop ordering is unchanged; a stale completion now cannot stop a
+session that has already moved on.
+
+Also found and left unfixed: that assertion's failure message read
+`Get(f,"SelectedSpeechEngineId")`, but the member is a property, so `GetField`
+returned null and threw a `NullReferenceException` that masked the real message.
+`drainingStreaming` and `failoverInProgress` are additionally only visible via
+their multi-declarator lines. The message is correct now.
+
+Validation: lifecycle regression passes 6/6 consecutive runs (previously 4/5
+failed). Parser, quotation, adapter (33), passage policy, version navigation (24)
+and chapter recovery (9) suites pass, as do the FreeAccess check and the MiniOnly
+interface run. The full interface suite still stops at the pre-existing
+`Speech overwrote an operator edit` assertion recorded on 13 November; it is
+unchanged by this work and leaves later assertions unexecuted. No source was
+staged, replaced or rolled back. Candidate rebuilt in offline free mode,
+SHA-256 `4C8FD810148F8100BB7EB3D3BE43FFC7E76B771A1025CEB2CD6BCA2C28ABB05D`
+(379,904 bytes), with a matching `free_offline` marker. Production `Gazely.exe`
+(`82D30869…`) and rollback `Gazely.previous.exe` (`A366326E…`) are unchanged.
+No installer or package was built.
+
+### 14 November — Mini listening meter alignment
+
+The Mini signal card had a 34 px row plus excess vertical margin/padding, while
+the audio meter itself requires 30 px height and 180 px width. This clipped the
+listening status and forced the meter beyond its narrow fixed column. The row
+now has adequate height and no extra vertical padding; the status has a fixed
+label column, the meter fills the remaining width, and Listen stays at right.
+The MiniOnly interface regression checks status/meter/button bounds and passes;
+the expanded screenshot was inspected. The candidate target could not be
+replaced by Windows (`Cannot create a file when that file already exists`), so a
+separate FreeAccess test build was created at
+`EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/Gazely.mini-audio-align-test.exe`
+(SHA-256 `CE8890B263EB67ECF1F1BD671CC3C793A061BBC59BC3ACD039921203B9BBD558`).
+Its FreeAccess check passes; no installer was built.
+
+### 14 November — Mini Expanded width collapse
+
+Reproduced the user's narrow Mini at 136 px even on the 1920×1080 test desktop.
+Expanded mode had assigned `MaximumSize = (0, height)`. WinForms treated that
+zero width as a maximum and reset the form's minimum width, so layout constrained
+the overlay to its content. Expanded mode now caps width at the operator screen
+width while retaining the 430 px minimum (or the narrower screen width). Dense
+detection cards were adjusted to 80 px so their action row remains usable; three
+cards fit in the current visual test while eight remain on each page.
+
+The MiniOnly UI test now asserts Expanded width ≥430 px on a normal screen, the
+720 px height cap, eight card entries and the selected scripture preview. It
+passes, and its expanded screenshot was inspected. The candidate rebuilt and
+passed FreeAccess verification: SHA-256
+`179131C57AA988108FCB517EDAD8E941E30E791FB55CC4FD119F6F541C9A9289` (379,904
+bytes). No installer was built, and no running app or prior release was touched.
+
+### 14 November — Parakeet WER on the shared Genesis fixture
+
+Ran the exact 240-second `decoded.wav` used for the Nemotron Genesis benchmark
+through the currently packaged Gazely `parakeet_worker.py` and Parakeet EOU
+120M Q8_0 model. Input used the production 16 kHz mono PCM16 stream framing in
+100 ms packets, without audio preprocessing, retrieval or presentation. Scored
+the concatenated finalized transcript using the same corrected 449-word user
+reference and `score_transcript.py`: **20.71% WER** (33 substitutions, 51
+deletions, 9 insertions; 407 hypothesis words). The matching Nemotron
+genesis-c6-t4 result is **14.48%** (65 word edits), so Parakeet is 6.24
+percentage points worse on this one recording. Its accelerated replay took
+53.00 s (4.53× audio/wall throughput) and finalized two EOU segments.
+
+Evidence is retained in `benchmarks/runs/parakeet-genesis-c6-20261114-111936/`
+with audio/model/runtime/worker hashes, transcript, events, worker logs and WER
+JSON. This is a single accelerated ASR replay, not a live-latency or held-out
+accuracy test; it excludes Gazely's UI, parser, detection and presentation
+decisions. The user-corrected reference is not independently time-aligned or
+verified. No downloads, installer build or production change occurred.
+
+### 14 November — Mini detection density and phonetic Luke reference
+
+Mini Expanded now gives its detection panel more vertical space while retaining
+the selected passage card and scripture excerpt at their existing readable size.
+Secondary transcript/chrome rows are shorter in Expanded, detection rows are
+compact and scrollable, and each Expanded page can show eight candidates. The
+window height is capped at 720 px (or the operator work area minus 32 px).
+Compact and Collapsed layouts are unchanged. An embedded “look eleven fifty two”
+now yields a review-only Luke 11:52 candidate for both Selected Passage and
+Detections; it cannot trigger automatic projection.
+
+Validation: parser regression includes the exact embedded wording and verifies
+the review-only policy; parser suite passes. MiniOnly interface checks pass and
+assert the readable selected-verse preview, 720 px height cap and eight compact
+detection cards. FreeAccess reflection check and `git diff --check` pass. The
+candidate compiled as `Gazely.mvp-candidate.exe` (SHA-256
+`62D062BD95FA343664ACB9DE89A458B23E3D149BD72245E0EF16BBDB406376D9`). No
+installer/package was built, and no running application was interrupted.
+
 Current baseline: v6.3 prototype. Consolidated 30 September 2026.
 
 [Product vision](PRODUCT_VISION.md) governs product scope and constraints.
@@ -8,6 +177,26 @@ records implementation and evidence; proposed architecture is not a claim of
 shipped functionality.
 
 ## Immediate engineering reality
+
+### 13 November — cohesive WinForms visual pass
+
+The existing Windows UI received a shared visual refinement, with no React or
+runtime downloads. Navigation now fits on one row at the 980–1020 px supported
+window width; secondary pages share 24 px gutters; the Bible map wraps long
+lines instead of exposing a horizontal scrollbar. The dark/light Gazely palette
+now supports a quieter soft-card surface. Mini uses that same system, with a
+framed passage preview, separate KJV badge, readable scripture typography,
+clearer listening state, and stronger Prepare/Present actions. Its minimum sizes
+also account for the updated spacing while retaining older saved dimensions.
+
+The dedicated Mini UI regression passes in dark and light themes in collapsed,
+compact, and expanded modes. The general interface run confirms responsive
+layout, one-row navigation, and the speech selectors before stopping at the
+existing `Speech overwrote an operator edit` assertion; that is outside this
+visual change and leaves later general/Mini lifecycle assertions unexecuted.
+`Gazely.mvp-candidate.exe` compiled successfully (SHA-256
+`CD1134D2E1A30B5C2276B3733A81152BE1275F04D30BF58FD8B217FA914730B3`). No
+installer was built and no production or rollback build was touched.
 
 ### 15 October selected passage and Mini follow-up
 
@@ -2466,4 +2655,198 @@ passed isolated no-shortcut installation: 365-file manifest, installed EXE
 matching candidate. No EasyWorship live action was run from this execution
 session, so automatic projection still needs operator confirmation. Older
 installers and installed builds remain intact.
+
+## Nemotron streaming failure investigation — 2026-10-30
+
+### Architecture and lifecycle
+
+`EasyWorshipController.cs` (`StreamingSpeechEngine.Start`) starts the packaged
+Python interpreter as a child process with `nemotron_worker.py`, model root,
+manifest and a fresh GUID session ID. The Python worker validates the local model
+manifest, reserves a loopback port, then starts the packaged
+`nemo-speech-0.2.0-windows-x86_64-cpu/bin/nemo-speech.exe serve` as its child.
+The native server is therefore not an external service. A Windows Job Object
+uses kill-on-close for the native child when the worker exits.
+
+The worker connects to `127.0.0.1:<ephemeral-port>` over authenticated WebSocket
+at `/v1/audio/transcriptions/realtime`. It receives `session.created`, sends a
+fixed `session.update` (16 kHz English, punctuation off, 700 ms endpointing),
+then waits for `session.updated`. C# reads 16 kHz mono PCM16 audio and enqueues
+it in a 640,000-byte queue (about 20 seconds). Its writer divides packets into
+3,200-byte frames (100 ms) and sends a 32-bit little-endian length followed by
+PCM through Python stdin. Python relays each binary frame over WebSocket and
+sends a ping carrying its cumulative sample count. One Python receiver thread
+reads WebSocket frames and forwards partial/final transcripts and progress over
+Python stdout; C# parses these and passes transcripts into the existing parser.
+The C# stdout reader is continuously active. Python stderr is continuously
+drained by C#; the new Python instrumentation also continuously drains native
+stdout and stderr and relays them as diagnostic events.
+
+Each listening start makes a new worker, native server and WebSocket session.
+There is no in-session reconnect. A normal stop ends audio capture, drains the
+C# queue, sends a zero-length flush marker, then Python sends
+`input_audio_buffer.commit` and waits up to 25 seconds for the committed event.
+UI settings restart through stop/start. A transport error fails the engine and
+stops listening; app shutdown disposes the worker, which closes the Job Object
+and terminates the native server. There is no independent pause/resume protocol.
+
+The Python socket has a 35-second read timeout. C# caps its audio queue at 20
+seconds and stops listening on overflow. Python also stops feeding if the
+sample count not yet echoed in PONGs exceeds three seconds for 20 seconds. A
+single Python receive thread reads the socket; the main worker thread sends
+audio and ping frames. There is no second application thread writing to this
+WebSocket. These flow limits are existing behavior and were not changed.
+
+### What the recordings establish
+
+Three logs contain `ConnectionResetError: [WinError 10054]`, no WebSocket close
+frame and `native_exit=None` at the instant the error was wrapped. The recorded
+sessions failed after approximately 25m45s with about 1.88 seconds of reported
+backlog, 2m02s with about 0.4 seconds, and about 1 minute with backlog rising
+past 10 seconds (about 8.56 seconds at the final sample). This confirms the
+reset is not limited to a long-duration session or to the one visibly overloaded
+session. `native_exit=None` only means Python's process poll had not observed an
+exit before cleanup; it does not prove the native WebSocket handler or inference
+worker was healthy. The old logs have no native stdout/stderr, socket close
+details, process resource samples or per-session correlation ID, so they cannot
+attribute the resets to a server defect, scheduler pressure or another local
+transport cause.
+
+The bundled native executable is inspectable only as a packaged binary. Its
+upstream C++ implementation, symbols, per-session inference state and socket
+handler internals are not included in this repository. We can observe its PID,
+exit status, redirected output, WebSocket events, worker protocol, queue state,
+CPU and working set. A live parent PID alone is insufficient evidence of a
+healthy inference session.
+
+### Diagnostic additions and interpretation
+
+Nemotron events now share a GUID session ID and UTC/monotonic timestamps. The
+trace captures worker/server starts and exits, connection attempts, handshake
+and session update, native stdout/stderr lines, socket close/error details with
+tracebacks and OS error codes, audio-frame milestones, response counts and audio
+positions, flush, cleanup, queue/drop counts, and five-second CPU/working-set
+samples for Gazely, Python and the native server. Diagnostics are written to the
+existing rolling `scripture-diagnostics.log` (2 MB, four backups).
+
+The existing protocol treats a PONG carrying a ping's sample count as progress
+for backpressure. Instrumentation now calls this `pong_echoed_samples` and its
+difference from sent samples `unconfirmed_audio`; it does not claim this proves
+inference completed. The audio send path, thresholds, model and recognition
+settings are unchanged. Response delay is measured against first audio-send
+time and `audio_processed` position.
+
+### Ranked causes
+
+1. **Confirmed vulnerable dependency; production causality remains to be
+   reproduced:** the installed `nemo-speech.exe` embeds the default User-Agent
+   string `cpp-httplib/0.50.1` and contains the library's `httplib` symbols. Its
+   SHA-256 is
+   `72ED6E35506150DC7EDAA0507904688ACE62A8D9A47C4976330B556D361492AA`.
+   This confirms Gazely's packaged NeMo-Speech.cpp v0.2.0 executable uses the
+   exact cpp-httplib version implicated in upstream issue #72. That issue reports
+   realtime WebSocket drops under load, without a close frame, when frame-header
+   fields straddle the library's 4 KiB buffer; it reproduces drops in 50 of 648
+   frame alignments on v0.50.1 and none on v0.63.0. This is now the leading
+   explanation for Gazely's 10054 resets, especially the severe-backlog event,
+   but does not by itself prove which mechanism caused each production reset.
+   Upstream PR #73 proposes updating to v0.63.0 and remained open when checked.
+2. **Native server/session failure:** plausible because all resets occur on its
+   local WebSocket and its per-session internals are opaque. Previous logs did
+   not capture native output, so evidence is absent either way.
+3. **CPU scheduling/inference backlog:** confirmed for one failure and may create
+   the burst conditions described upstream. It cannot alone explain the two
+   low-backlog snapshots; a short unobserved backlog spike remains possible.
+4. **Other local socket reset (runtime, endpoint security or OS):** possible but
+   unsupported by the available traces. New native output, exit events and
+   correlated CPU/backlog data should narrow this.
+
+### Reproducible validation plan
+
+Use the same packaged runtime/model and machine conditions; retain each rolling
+log set and record the session GUID. Do not change model or recognition settings
+between runs.
+
+1. Continuous baseline: run at least 30 minutes with representative speech and
+   quiet intervals; confirm session ID continuity, monotonic audio/frame counts,
+   no queue drops, and matching start/stop/flush events.
+2. Repeated sessions: perform 20 start/stop cycles of 1–3 minutes. Check unique
+   IDs, committed flushes, and expected worker/native exits after each stop.
+3. Pause/resume behavior: since there is no pause protocol, test the actual UI
+   pause/stop and restart flows; verify each restart receives a new session ID
+   and old child PIDs exit.
+4. CPU pressure: use a controlled local CPU load, gradually increasing it while
+   logging CPU, queue depth, unconfirmed audio and drops. Do not infer causality
+   from a single run.
+5. Slow inference/backlog: reproduce naturally with CPU pressure or a slower
+   machine and inspect whether WebSocket resets cluster around rising backlog,
+   native errors, PONG delay or response delay. The protocol's PONG semantics
+   remain unverified, so compare multiple signals.
+6. Forced interruption: terminate the native process during a controlled
+   session. Verify the native exit event, Python socket exception/traceback,
+   C# listening stop, and absence of a silent reconnect. Separately interrupt
+   the worker and confirm Job Object cleanup. This tests observability and
+   existing failure propagation; it is not a recovery test.
+7. After any reset, preserve the active log and `.1`–`.4` rotations before
+   restarting Gazely; the application can roll older evidence out over time.
+
+No streaming test was run during this instrumentation change. A subsequent
+production failure should now identify whether a native process exit/output,
+socket close/error, resource/backlog change, or worker-side failure preceded the
+reset. If the trace shows no server output and the packaged binary's dependency
+pin is confirmed as v0.50.1, validate against a corrected native build in a
+controlled test before considering a runtime upgrade. No speculative reconnect
+or model/inference change is part of this investigation.
+
+### Parakeet EOU fallback candidate — 2026-11-13
+
+Added selectable **Parakeet Realtime EOU 120M Q8_0** and the failure ladder
+Nemotron → Parakeet → Whisper. A failed streaming worker no longer immediately
+stops capture: Gazely disposes the worker, retains a bounded 20-second in-memory
+PCM history, starts the next engine, and replays up to 16 seconds. Outputs fully
+inside replayed audio are filtered and engine epochs reject stale callbacks.
+Startup failures also advance through the available tiers. Whisper remains the
+terminal fallback; if it cannot start, listening stops visibly. No reconnect is
+attempted for the failed Nemotron session.
+
+The pinned Parakeet model is 176,001,472 bytes and the Windows CPU library
+archive is 1,169,291 bytes. Both hashes are in
+`speech-runtime/packages.json`; the local package was installed and passed its
+offline receipt/hash verification. The actual Python/C API worker processed the
+existing 102-second church replay in 22.98 seconds and produced four EOU turns.
+This confirms runtime/protocol operation, not transcript accuracy. Lifecycle
+tests exercise Nemotron → Parakeet → Whisper runtime failover; parser, quotation,
+adapter, version, audio and FreeAccess suites pass. The source build succeeded
+for `Gazely.mvp-candidate.exe` only. Existing speech pipeline and interface test
+harnesses still fail at their PowerShell `Add-Type` output-type boundary; neither
+was changed as part of this work. The full live-device fallback and transcript
+quality remain for the user's evaluation. No installer was built, and production,
+pending and rollback builds were left intact.
+
+### Returning-install startup navigation — 2026-11-13
+
+The working copy reproduced the operator's issue: `version-map.txt` already has
+24 valid Bible mappings, but the preferences file has no `onboarding.shown`
+entry. `ShowFirstRunGuide` treated that combination as a fresh installation and
+offered Bible setup again. Startup now treats a successfully loaded non-empty map
+as evidence of an existing setup, records the onboarding marker, and selects Live
+workspace. A previously recorded onboarding marker also explicitly returns to
+Live workspace. Empty-map first launches still receive the welcome/setup flow.
+The lifecycle regression now covers the returning-map case; the source compiled
+successfully into the candidate. Candidate SHA-256:
+`61869FB8BCF9DC5AA8526050327B2F06DCD3559A0646162F458F4C8D44FCF42D` (375,296
+bytes). No installer was built or staged.
+
+### Lightweight diagnostic candidate — 2026-11-08
+
+Updated `Test-SpeechLifecycle.ps1` to include the cloud source and references
+added since the harness was written, and to keep its temporary preference/account
+state inside a disposable workspace directory. The lifecycle regression now
+passes. Built only `Gazely.mvp-candidate.exe` in `free_offline` mode; the
+FreeAccess reflection check and `git diff --check` pass. Candidate SHA-256:
+`41BD3B3D17E602CB8AB0A0A5AA8267BB0884EF54D6592B67E9E10664712E8712` (362,496
+bytes). No installer or native runtime/model was built, replaced, or downloaded.
+This candidate reads the instrumented `speech-runtime/nemotron_worker.py` from
+the same folder and is ready for a controlled live-input test. Existing r5 and
+rollback builds remain untouched.
 

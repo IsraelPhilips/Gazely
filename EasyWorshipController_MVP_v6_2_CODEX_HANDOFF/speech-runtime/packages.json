@@ -18,6 +18,14 @@
         {"file":"websocket_client-1.9.0-py3-none-any.whl","destination":"python/Lib/site-packages","archive":true,"bytes":82616,"sha256":"af248a825037ef591efbf6ed20cc5faa03d3b47b9e5a2230a529eeee1c1fc3ef","url":"https://files.pythonhosted.org/packages/34/db/b10e48aa8fff7407e67470363eac595018441cf32d5e1001567a7aeba5d2/websocket_client-1.9.0-py3-none-any.whl"},
         {"file":"nemotron-LICENSE.pdf","installedName":"NVIDIA-Open-Model-License-2025-10-24.pdf","destination":"licenses","bytes":79005,"sha256":"4d2fb590aa9b30c47f2058bff17291df7fa2aa0c1bd775a20703da9bb267cfab","url":"https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/nvidia-open-model-license-agreements-24-10-2025.pdf"}
       ]
+    },
+    {
+      "id": "parakeet", "name": "Parakeet — Fast fallback", "directory": "parakeet-eou-120m-v1",
+      "artifacts": [
+        {"file":"realtime_eou_120m-v1-q8_0.gguf","installedName":"realtime_eou_120m-v1-q8_0.gguf","destination":"model","bytes":176001472,"sha256":"62616b914d6f5a683a5dea672df055b57de5c49dddf871b8b44b9c814dc3d896","url":"https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/b00dba2664e73864eba3bfe23fffee0b95d08e75/realtime_eou_120m-v1-q8_0.gguf"},
+        {"file":"parakeet-v0.6.1-lib-win-cpu-x64.zip","destination":"runtime","archive":true,"include":"/(parakeet\\.dll|LICENSE)$","bytes":1169291,"sha256":"95b41515efeab246094d1793a1c0a12d727bc1cc01e4c28fe37a16a994b26774","url":"https://github.com/mudler/parakeet.cpp/releases/download/v0.6.1/parakeet-v0.6.1-lib-win-cpu-x64.zip"},
+        {"file":"parakeet-LICENSE.pdf","installedName":"NVIDIA-Open-Model-License-2025-10-24.pdf","destination":"licenses","bytes":79005,"sha256":"4d2fb590aa9b30c47f2058bff17291df7fa2aa0c1bd775a20703da9bb267cfab","url":"https://www.nvidia.com/content/dam/en-zz/Solutions/license-agreements/enterprise-software/nvidia-open-model-license-agreements-24-10-2025.pdf"}
+      ]
     }
   ]
 }

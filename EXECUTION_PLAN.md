@@ -1,5 +1,226 @@
 # Gazely — next execution phase
 
+## 14 November 2026 — autonomy levels, scripture plan and automation speed (approved)
+
+Product-owner-approved direction. This is a plan; none of it is implemented yet.
+It supersedes the earlier prose "Auto" description as the authority for autonomy
+behaviour. Nothing here requires a new download, model or runtime.
+
+### Locked decisions
+
+| # | Decision |
+|---|---|
+| 1 | A chapter-only call ("Hebrews 5") shows verse 1 in Gazely and **holds Enter**. Live only once a verse is called. |
+| 1b | Never re-enter what is already entered. Fill only the missing field. |
+| 2 | "Give me that scripture!" promotes the **highest-matched** held quote, not the newest. |
+| 3 | In Auto, a **complete** explicit book+chapter+verse goes live without a confidence gate. |
+| 4 | If the operator types in EasyWorship, Gazely yields immediately. |
+| 5 | Two quotes that tie **never** resolve automatically: one shows in preview, both stay available in Gazely, the operator decides. |
+
+### Autonomy — three levels, not a percentage (UI priority)
+
+One control sets both how much Gazely decides and how early it acts. Three named
+stops, each a testable policy. A 0–100 dial is rejected: the existing scores
+(cosine, reranker logit, parser confidence) are different scales and none is a
+calibrated probability, so a percentage could not be built, tested or explained.
+
+| Level | Gazely does | Operator does |
+|---|---|---|
+| **Observe** | detects and shows only | everything |
+| **Assist** | fills the target when Present is clicked | approves every send |
+| **Auto** | pre-types as heard; sends Enter on a complete explicit reference | supervises, may override |
+
+A fourth "Full Auto" (resolving ambiguity by best guess) is deliberately **not
+shipped**. It is the one level that must guess, and guessing is the failure the
+product exists to avoid.
+
+### Automation speed
+
+Today the path is serial and blind: fixed `ForegroundDelayMs=180`,
+`ClickDelayMs=180`, `FieldDelayMs=110 ×5`, plus up to 60 version keys to
+re-anchor — roughly 1.1–1.5 s of deliberate dead time, after inference and after
+the operator's click. Three independent changes, all safe because **Enter is the
+only go-live action** and everything before it is reversible.
+
+| Change | Effect |
+|---|---|
+| **Entry-state cursor** | Track which of book/chapter/verse Gazely has already entered and verified; a later verse arrival types only the verse. Removes the repeated full sequence. |
+| **Speculation** | Begin focus/click/typing at the book mention instead of after a complete parse; fill chapter, then verse as evidence arrives. Partials may drive pre-fill; finals and policy still own Enter. Speculation is pre-fill, not automation of output. |
+| **Event-driven waits** | Replace fixed sleeps with readback polling to the expected value plus timeout. Same or better reliability, usually far less than 110 ms. |
+
+Speculation changes how the product *feels* — Gazely moves inside EasyWorship
+before being asked. It therefore belongs to the autonomy level (Auto only), not
+to a hidden optimisation.
+
+### The smart layer — deterministic, no LLM
+
+A **scripture plan**: the ordered set of announced scriptures, scoped to a sermon
+section.
+
+| Heard | Interpretation |
+|---|---|
+| "we'd be reading three scriptures …" | declares the set; activates none |
+| "let's start from Hebrews 10:2" | activates that member only |
+| "the next verse I called in Psalms" | next plan member whose book is Psalms |
+| "the final scripture" | last plan member |
+
+Resolution is a **focus stack over data Gazely already holds**, not inference:
+the candidate set is built by us, so an ordinal plus an optional book constraint
+is lookup, not reasoning. A generative model on this path is rejected — it would
+re-create the unspoken-book hallucination already fixed by emptying the Bible
+vocabulary prompt, add seconds of CPU latency to a p95 ≤2 s budget, and make the
+330 parser fixtures non-reproducible. Ambiguity abstains and surfaces the
+candidates instead.
+
+The plan is **visible**, as a workspace strip:
+`3 announced · Ps 1:3 · Heb 10:2 (live) · Dt 28:1`. Plan lifetime needs an
+explicit boundary (new section or long silence) and visible expiry, not a silent
+timeout, because it must outlive the current 6 s/30 s/90 s contexts.
+
+### Auto policy
+
+| Heard | Auto does |
+|---|---|
+| "Isaiah 60:1" — complete | **Live**, immediately |
+| "Isaiah 60" — chapter only | Show 60:1, hold Enter |
+| "the next one I called in Psalms" | **Live** (plan member) |
+| A quote, no reference | **Preview only** |
+| "give me that scripture!" | Promote highest-matched held quote |
+| Two quotes tie | Preview one; both remain in Gazely; operator decides |
+
+### Safety
+
+- **Yield guard**: operator input in EasyWorship stops Gazely and drops its cursor.
+- **Abstain is always available**; ambiguity never auto-sends.
+- **Manual action and Stop outrank the machine** at every level.
+
+### Measure before building (Phase 0)
+
+Confirm enumeration and directive wording survives ASR ("three scriptures",
+"let's start from", "the next one I called") before designing for sentences that
+may never arrive. Capture a real end-to-end latency breakdown so "faster" is a
+measured number, not a feeling.
+
+### Build order
+
+| Phase | Work | Notes |
+|---|---|---|
+| 0 | ASR-survival and latency baselines | benchmarks only; no product change |
+| 1 | Entry-state cursor + event-driven waits | invisible speed win; no policy change |
+| 2 | Speculation + yield guard | Auto only |
+| 3 | Autonomy control (3 levels) + Auto policy | drops the score gate; holds chapter-only |
+| 4 | Scripture plan, focus stack, plan strip, deictics, "give me that scripture" | parser, policy, UI |
+| 5 | Fixtures, suites, docs | extend, do not replace |
+
+UI/UX is prioritized within phases 3–4: the autonomy control and the plan strip
+are the surfaces that make autonomy trustworthy. All new UI uses the existing
+WinForms controls (`GazelyTheme`, `GazelyCard`, `GazelyButton`, `GazelyToggle`).
+No new UI framework; React remains deferred.
+
+### Constraints
+
+- No downloads; installed models and runtime only.
+- Candidate builds only; production, pending and rollback builds stay intact.
+- Desktop compiler is .NET Framework CodeDOM — no modern C# syntax.
+- Do not change method signatures: `benchmarks/Run-LiveReplay.ps1` compiles
+  copied methods and fails visibly on boundary changes.
+- Extend the existing suites (330 parser, 19 quotation, 33 adapter, 24
+  navigation) rather than replacing them.
+- Preserve the honest-scoring doctrine: no score is a calibrated probability.
+
+### Explicitly out of scope
+
+- An LLM on the live decision path.
+- ASR rescoring against Bible-domain n-best. This is the correct model
+  investment for the actual accuracy problem (14–45% WER, invented books) and is
+  a separate track, parked.
+- "Full Auto" ambiguity resolution.
+
+## 14 November 2026 — speech stop/start race
+
+Fixed the intermittent `Test-SpeechLifecycle.ps1` failure at the Nemotron →
+Parakeet startup-fallback assertion. A stale deferred post-flush completion
+declared inside `StopListening` could run after a newer session had begun
+starting, call `StopListening()` unguarded and orphan that start, leaving
+listening `Stopped` instead of falling back. The drain now records its session
+and ignores a completion whose session has moved on. Lifecycle passes 6/6;
+parser, quotation, adapter, passage, version and pronunciation suites, the
+FreeAccess check and the MiniOnly run pass. The full interface suite still stops
+at the pre-existing `Speech overwrote an operator edit` assertion, unchanged by
+this work. Candidate rebuilt in offline free mode, SHA-256
+`4C8FD810148F8100BB7EB3D3BE43FFC7E76B771A1025CEB2CD6BCA2C28ABB05D` (379,904
+bytes). No installer was built; production and rollback builds are untouched.
+
+## 14 November 2026 — Mini listening row
+
+Fixed the clipped “Listening” status and mis-sized audio meter by making the
+status column fixed-width, letting the meter use available width, and removing
+vertical padding that conflicted with its minimum size. MiniOnly layout/bounds
+check and FreeAccess check pass; expanded screenshot inspected. Separate test
+build: `Gazely.mini-audio-align-test.exe` (SHA-256
+`CE8890B263EB67ECF1F1BD671CC3C793A061BBC59BC3ACD039921203B9BBD558`). No
+installer built.
+
+## 14 November 2026 — Mini expansion fix
+
+Fixed and reproduced the reported narrow/non-expanding Mini. Expanded mode now
+uses the actual screen width as the WinForms maximum width instead of zero,
+which had disabled its minimum-width constraint. Detection rows remain compact
+but have enough height for the selection and Present controls. MiniOnly UI,
+screen-size regression, screenshot inspection and candidate FreeAccess check
+pass. Candidate SHA-256:
+`179131C57AA988108FCB517EDAD8E941E30E791FB55CC4FD119F6F541C9A9289`.
+No installer built; please try this candidate's Expanded button on the monitor.
+
+## 14 November 2026 — Parakeet shared-fixture WER
+
+On the same 240-second Genesis PCM and 449-word corrected reference used for
+Nemotron, the packaged Parakeet EOU worker scored **20.71% WER** (93 word edits)
+in 53.00 seconds accelerated; Nemotron scored **14.48%** (65 edits). This is one
+offline ASR comparison, not live latency or detection-quality evidence. Full
+transcript, stream events, hashes and scorer output are under
+`benchmarks/runs/parakeet-genesis-c6-20261114-111936/`. No installer or download.
+
+## 14 November 2026 — Mini visibility refinement
+
+Completed: Expanded Mini now prioritizes up to eight compact detection cards
+per page, keeps the selected scripture preview in place and limits height to
+720 px or the available operator work area. Compact/Collapsed modes remain as
+before. Embedded “look eleven fifty two” is offered as a review-only Luke 11:52
+candidate. Parser and dedicated Mini interface checks pass. No installer was
+built; the free offline `Gazely.mvp-candidate.exe` was rebuilt and passed its
+FreeAccess check (SHA-256 `62D062BD95FA343664ACB9DE89A458B23E3D149BD72245E0EF16BBDB406376D9`).
+Proceed with operator review of visibility on the EasyWorship monitor.
+
+## Current continuation — 13 November 2026
+
+The candidate now includes Parakeet Realtime EOU 120M as a selectable CPU
+streaming engine and automatic Nemotron → Parakeet → Whisper recovery. On a
+stream failure it keeps capture active, replays up to 16 seconds from a bounded
+memory buffer and rejects stale/replayed results. Parakeet's pinned model/runtime
+were installed locally and hash-verified; the 102-second worker replay completed
+in 22.98 seconds. Lifecycle and existing parser, quotation, adapter, version,
+audio and FreeAccess regressions pass. The candidate executable was rebuilt;
+**no installer/package was built**. Full live-device failover and sermon accuracy
+remain for operator testing. Continue with the candidate only and keep all
+production/rollback artifacts intact.
+
+The new model adds 176.0 MB of model weights and a 1.17 MB runtime archive to
+future package downloads. No further large download or installable build is
+authorized by this work; report before either step.
+
+Returning-install startup was corrected on 13 November: a loaded valid Bible map
+now marks onboarding complete when its marker is missing and routes to Live
+workspace. Empty-map fresh installs retain the welcome/setup flow. The candidate
+was rebuilt only; installer work remains deferred.
+
+The WinForms visual pass now applies the brand palette and card language
+consistently across the app, keeps navigation on one row at the compact supported
+width, aligns secondary-page gutters and Bible-map text, and refines Mini's
+scripture preview/actions. Mini dark/light visual checks pass in all three sizes.
+The broader interface test still stops earlier at the existing operator-edit
+assertion; no installer was built for this UI pass.
+
 ## Current continuation priority — 15 October 2026
 
 ### Selected passage and Mini follow-up

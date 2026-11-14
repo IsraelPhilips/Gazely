@@ -266,6 +266,14 @@ namespace EasyWorshipControllerMvp
         private const int FieldDelayMs = 110;
         private const int VersionUpDelayMs = 8;
         private const int VersionDownDelayMs = 15;
+        // Readback polling replaces a fixed sleep where the target exposes its
+        // value. A readback measures ~0.1 ms locally, so polling a few hundred
+        // times costs less than one blind sleep and confirms rather than assumes.
+        // TimeoutMs is the ceiling; the full sequence still runs if it expires.
+        private const int PollIntervalMs = 8;
+        private const int ClickSettleTimeoutMs = 400;
+        private const int FieldSettleTimeoutMs = 260;
+        private const int VerseSettleTimeoutMs = 420;
 
         // Reference selector strategy:
         // Click near the right side (verse area), then Shift+Tab twice to reach Book.
@@ -620,6 +628,74 @@ namespace EasyWorshipControllerMvp
             }
         }
 
+        // Poll a cheap readback until it matches or the ceiling expires. Returns
+        // true when the value was confirmed. A false result never fails the send:
+        // the caller falls back to the fixed delay, so worst case is the previous
+        // behaviour with the poll budget added.
+        private bool WaitForReference(
+            AutomationElement reference,
+            string expected,
+            int timeoutMs)
+        {
+            if (reference == null)
+                return false;
+
+            string wanted = NormalizeWhitespace(expected);
+            Stopwatch clock = Stopwatch.StartNew();
+            while (true)
+            {
+                CheckCanceled();
+                try
+                {
+                    if (string.Equals(
+                            NormalizeWhitespace(reference.Current.Name),
+                            wanted,
+                            StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                catch { return false; }
+
+                if (clock.ElapsedMilliseconds >= timeoutMs)
+                    return false;
+                Thread.Sleep(PollIntervalMs);
+            }
+        }
+
+        // True once the compound control's readback has advanced to at least the
+        // given prefix. Used to confirm each field was accepted rather than
+        // sleeping a fixed interval and hoping.
+        private bool ReferenceHasPrefix(
+            AutomationElement reference,
+            string prefix,
+            int timeoutMs)
+        {
+            if (reference == null)
+                return false;
+
+            string wanted = NormalizeWhitespace(prefix);
+            Stopwatch clock = Stopwatch.StartNew();
+            while (true)
+            {
+                CheckCanceled();
+                try
+                {
+                    string current = NormalizeWhitespace(reference.Current.Name);
+                    if (!string.IsNullOrEmpty(current) &&
+                        current.StartsWith(wanted, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                catch { return false; }
+
+                if (clock.ElapsedMilliseconds >= timeoutMs)
+                    return false;
+                Thread.Sleep(PollIntervalMs);
+            }
+        }
+
+        // The verse part of the compound reference control is only committed once
+        // it reads back as part of the reference; a bare verse number that has not
+        // been committed does not include this prefix.
+
         public string SetScriptureReference(
             AutomationElement ew,
             ScriptureRequest request,
@@ -632,6 +708,51 @@ namespace EasyWorshipControllerMvp
 
             RestoreAndForeground(ew);
 
+            // Fast path: the reference already reads as the wanted book+chapter,
+            // so only the verse is missing. This is pre-fill, never go-live, and
+            // it is guarded by readback; anything unexpected falls through to the
+            // full sequence below. Intended for the Auto level, where speculation
+            // has already entered the book and chapter.
+            string wanted = NormalizeWhitespace(request.ReferenceText);
+            string prefix = NormalizeWhitespace(request.Book + " " + request.Chapter + ":");
+            string preFill = NormalizeWhitespace(reference.Current.Name);
+            bool fastPath =
+                string.Equals(preFill, prefix, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrEmpty(preFill) &&
+                 prefix.StartsWith(preFill, StringComparison.OrdinalIgnoreCase));
+            if (fastPath)
+            {
+                CheckCanceled();
+                ClickReferenceVerseArea(reference);
+                if (WaitForReference(reference, wanted, ClickSettleTimeoutMs))
+                {
+                    Log("Verse-only entry confirmed; book and chapter were already present.");
+                }
+                else
+                {
+                    SendKeys.SendWait(request.VerseSelection);
+                    WaitForReference(reference, wanted, VerseSettleTimeoutMs);
+                }
+
+                string fastObserved;
+                if (ReferenceLooksCorrect(ew, request, out fastObserved))
+                {
+                    if (goLive)
+                    {
+                        CheckCanceled();
+                        SendKeys.SendWait("{ENTER}");
+                        Pause(220);
+                        Log("Enter sent. Live-screen confirmation is unavailable.");
+                    }
+                    else
+                    {
+                        Log("Preview prepared. Enter was NOT sent.");
+                    }
+                    return fastObserved;
+                }
+                Log("Incremental entry did not verify; using the full reference entry sequence.");
+            }
+
             // Anchor on the Verse portion geometrically, then walk backward to Book.
             ClickReferenceVerseArea(reference);
 
@@ -643,19 +764,22 @@ namespace EasyWorshipControllerMvp
             }
 
             SendKeys.SendWait(request.Book);
-            Pause(FieldDelayMs);
+            if (!ReferenceHasPrefix(reference, request.Book, FieldSettleTimeoutMs))
+                Pause(FieldDelayMs);
 
             SendKeys.SendWait("{TAB}");
             Pause(FieldDelayMs);
 
             SendKeys.SendWait(request.Chapter.ToString());
-            Pause(FieldDelayMs);
+            if (!ReferenceHasPrefix(reference, request.Book + " " + request.Chapter, FieldSettleTimeoutMs))
+                Pause(FieldDelayMs);
 
             SendKeys.SendWait("{TAB}");
             Pause(FieldDelayMs);
 
             SendKeys.SendWait(request.VerseSelection);
-            Pause(220);
+            if (!WaitForReference(reference, request.ReferenceText, VerseSettleTimeoutMs))
+                Pause(220);
 
             string observed;
             bool verified = ReferenceLooksCorrect(ew, request, out observed);
@@ -1774,6 +1898,8 @@ namespace EasyWorshipControllerMvp
                 ScriptureDetector parser=new ScriptureDetector();ScriptureDetection d=parser.Feed(span) ?? parser.Suggest(span);
                 if(d!=null && seen.Add(d.ReferenceText)){d.RequiresReview=true;found.Add(d);}
             }
+            ScriptureDetection phoneticLuke=SuggestMisheardLuke(text);
+            if(phoneticLuke!=null && seen.Add(phoneticLuke.ReferenceText))found.Add(phoneticLuke);
             return found;
         }
 
@@ -2095,9 +2221,11 @@ namespace EasyWorshipControllerMvp
             // Context continuation: "verse seventeen" after a recent book/chapter.
             if (!string.IsNullOrEmpty(lastBook) && lastChapter > 0)
             {
-                Match verseMatch = Regex.Match(
+                Match correctionMatch=Regex.Match(normalized,
+                    @"\b(?:give me|make it|change it to|use)\s+(?:the\s+)?(?:verse\s+)?(.+?)(?:\s+(?:instead|rather))?$");
+                Match verseMatch = correctionMatch.Success ? correctionMatch : Regex.Match(
                     normalized,
-                    @"(?:^(?:(?:and|okay|ok)\s+)?verses?\s+|\b(?:go to|start from|back to|okay|ok)\s+(?:verses?|ves)\s+)(.+)");
+                    @"(?:^(?:(?:and|okay|ok|now|please|so|then)\s+)*(?:verses?|ves)\s+|\b(?:go to|start from|back to|okay|ok)\s+(?:the\s+)?(?:verses?|ves)\s+)(.+)");
 
                 if (verseMatch.Success)
                 {
@@ -2111,7 +2239,9 @@ namespace EasyWorshipControllerMvp
                         d.Chapter = lastChapter;
                         d.Verse = verse;
                         d.VerseEnd = verseEnd;
-                        d.EvidenceKind = "contextual";
+                        bool correctionCue=Regex.IsMatch(normalized, @"\b(?:give me|make it|change it to|use)\b") ||
+                            Regex.IsMatch(normalized, @"\b(?:instead|rather)\b");
+                        d.EvidenceKind = correctionCue ? "correction" : "contextual";
                         d.RequiresReview = true;
                         d.Translation =
                             !string.IsNullOrEmpty(translation)
@@ -2120,7 +2250,8 @@ namespace EasyWorshipControllerMvp
                         d.TranslationExplicit = translationExplicit || lastTranslationExplicit;
                         d.Confidence = 0.80;
                         d.SourceText = text;
-                        d.Reason = Regex.IsMatch(normalized,@"\bves\b")?"Possible verse instruction: heard VES within the active chapter; review before presenting":"contextual verse continuation";
+                        d.Reason = correctionCue ? "Possible verse correction within the active chapter; review before presenting" :
+                            Regex.IsMatch(normalized,@"\bves\b")?"Possible verse instruction: heard VES within the active chapter; review before presenting":"contextual verse continuation";
                         return d;
                     }
                 }
@@ -2363,6 +2494,8 @@ namespace EasyWorshipControllerMvp
             // candidates for narrow phonetic confusions, never substitutions
             // eligible for automatic live or automatic preview.
             string normalized = Normalize(text);
+            ScriptureDetection phoneticLuke=SuggestMisheardLuke(text);
+            if(phoneticLuke!=null)return phoneticLuke;
             string[] heard = { "look", "tight us", "titles" };
             string[] books = { "Luke", "Titus", "Titus" };
             for (int i = 0; i < heard.Length; i++)
@@ -2376,6 +2509,27 @@ namespace EasyWorshipControllerMvp
                 candidate.SourceText = text;
                 candidate.Reason = "Possible " + books[i] + " — confirm the book manually";
                 return candidate;
+            }
+            return null;
+        }
+        private ScriptureDetection SuggestMisheardLuke(string text)
+        {
+            string normalized=Normalize(text);
+            MatchCollection anchors=Regex.Matches(normalized,@"\blook\s+",RegexOptions.IgnoreCase);
+            foreach(Match anchor in anchors)
+            {
+                string[] words=Regex.Split(normalized.Substring(anchor.Index+anchor.Length).Trim(),@"\s+");
+                int limit=Math.Min(9,words.Length);
+                for(int count=limit;count>=2;count--)
+                {
+                    string spoken=string.Join(" ",words,0,count);
+                    ScriptureDetection candidate=new ScriptureDetector().Feed("Luke "+spoken);
+                    if(candidate==null || candidate.Chapter<=0 || candidate.Verse<=0)continue;
+                    candidate.Confidence=0.65;candidate.RequiresReview=true;candidate.SourceText=text;
+                    candidate.EvidenceKind="phonetic-book";
+                    candidate.Reason="Possible Luke — speech recognition heard 'look'; review the reference before presenting";
+                    return candidate;
+                }
             }
             return null;
         }
@@ -2679,7 +2833,7 @@ namespace EasyWorshipControllerMvp
         {
             public string Book, Text;
             public int Chapter, Verse;
-            public string[] Words;
+            public string[] Words, ShortWords;
             public HashSet<string> Set;
         }
         private readonly List<Entry> entries = new List<Entry>();
@@ -2697,16 +2851,29 @@ namespace EasyWorshipControllerMvp
             }
             return text.ToString();
         }
-        private static string[] Tokens(string text)
+        private static string[] Tokens(string text,bool keepThis=false)
         {
             List<string> words=new List<string>();
             foreach(Match m in Regex.Matches((text??string.Empty).ToLowerInvariant(),@"[a-z]+"))
             {
                 string word=m.Value;
-                if(!stop.Contains(word)) words.Add(word);
+                if(!stop.Contains(word) || (keepThis && word=="this")) words.Add(word);
             }
             return words.ToArray();
         }
+        private static string[] Tokens(string text){return Tokens(text,false);}
+        private static bool ContainsTokenSequence(string[] phrase,string[] text)
+        {
+            if(phrase==null || text==null || phrase.Length==0 || phrase.Length>text.Length)return false;
+            for(int start=0;start+phrase.Length<=text.Length;start++)
+            {
+                bool same=true;for(int i=0;i<phrase.Length;i++)if(phrase[i]!=text[start+i]){same=false;break;}
+                if(same)return true;
+            }
+            return false;
+        }
+        private static int SurfaceWordCount(string text)
+        {return Regex.Matches(text??string.Empty,@"[a-z]+",RegexOptions.IgnoreCase).Count;}
         public ScriptureQuoteIndex(string path)
         {
             foreach(string line in System.IO.File.ReadLines(path))
@@ -2715,7 +2882,7 @@ namespace EasyWorshipControllerMvp
                 int chapter,verse;
                 if(fields.Length!=4 || !int.TryParse(fields[1],out chapter) || !int.TryParse(fields[2],out verse) || !BibleCanon.IsValid(fields[0],chapter,verse))
                     throw new System.IO.InvalidDataException("Invalid verse in quotation corpus.");
-                Entry entry=new Entry{Book=fields[0],Chapter=chapter,Verse=verse,Text=fields[3],Words=Tokens(fields[3])};
+                Entry entry=new Entry{Book=fields[0],Chapter=chapter,Verse=verse,Text=fields[3],Words=Tokens(fields[3]),ShortWords=Tokens(fields[3],true)};
                 entry.Set=new HashSet<string>(entry.Words);
                 int id=entries.Count; entries.Add(entry);
                 foreach(string token in entry.Set)
@@ -2751,7 +2918,9 @@ namespace EasyWorshipControllerMvp
         {
             bool scoped=book!=null && chapter>0;
             string[] all=Tokens(text);
-            if(all.Length<3 || all.Length>160) return null;
+            bool shortFragment=all.Length==2 && SurfaceWordCount(text)>=4 && SurfaceWordCount(text)<=8;
+            string[] shortAnchors=shortFragment?Tokens(text,true):all;
+            if((all.Length<3 && !shortFragment) || all.Length>160) return null;
             Dictionary<int,double> bestScores=new Dictionary<int,double>();
             Dictionary<int,double> coverageById=new Dictionary<int,double>();
             Dictionary<int,int> wordsById=new Dictionary<int,int>();
@@ -2759,12 +2928,12 @@ namespace EasyWorshipControllerMvp
             foreach(int wanted in sizes)
             {
                 int size=Math.Min(wanted,all.Length);
-                if(size<3) continue;
+                if(size<3 && !shortFragment) continue;
                 for(int start=0;start+size<=all.Length;start+=Math.Max(1,size/2))
                 {
                     string[] query=new string[size]; Array.Copy(all,start,query,0,size);
                     HashSet<string> unique=new HashSet<string>(query);
-                    if(unique.Count<3) continue;
+                    if(unique.Count<3 && !shortFragment) continue;
                     double total=0; Dictionary<int,double> sums=new Dictionary<int,double>();
                     foreach(string word in unique)
                     {
@@ -2774,8 +2943,11 @@ namespace EasyWorshipControllerMvp
                     }
                     List<KeyValuePair<int,double>> ranked=new List<KeyValuePair<int,double>>(sums);
                     ranked.Sort(delegate(KeyValuePair<int,double> a,KeyValuePair<int,double>b){return b.Value.CompareTo(a.Value);});
-                    for(int i=0;i<Math.Min(30,ranked.Count);i++)
+                    int evaluated=0;
+                    for(int i=0;i<ranked.Count;i++)
                     {
+                        if(shortFragment && !ContainsTokenSequence(shortAnchors,entries[ranked[i].Key].ShortWords))continue;
+                        if(evaluated++ >= 30)break;
                         int id=ranked[i].Key; double coverage=ranked[i].Value/total;
                         if(coverage<0.82) continue;
                         Entry candidate=entries[id];int shared=0;double rarest=0;
@@ -2784,7 +2956,8 @@ namespace EasyWorshipControllerMvp
                         string verseLiteral=Regex.Replace(candidate.Text.ToLowerInvariant(),@"[^a-z]+"," ").Trim();
                         bool exactExcerpt=literal.Split(' ').Length>=8 &&
                             (" "+verseLiteral+" ").Contains(" "+literal+" ");
-                        if(shared<3 || (shared<5 && rarest<7.0 && !exactExcerpt)) continue;
+                        bool shortPhraseMatch=shortFragment && ContainsTokenSequence(shortAnchors,candidate.ShortWords);
+                        if((shared<3 && !shortPhraseMatch) || (shared<5 && rarest<7.0 && !exactExcerpt && !shortPhraseMatch)) continue;
                         double order=OrderedMatches(query,candidate.Words)/(double)query.Length;
                         if(order<0.75) continue;
                         double score=0.7*coverage+0.2*order+0.1*Math.Min(1,shared/8.0);
@@ -2844,6 +3017,20 @@ namespace EasyWorshipControllerMvp
             if(whole.Length>0 && whole.Length<=1500 && seen.Add(whole))phrases.Add(whole);
             return phrases;
         }
+        public static List<string> SemanticSearchPhrases(string text,int limit,bool latestOnly)
+        {
+            List<string> eligible=new List<string>();
+            foreach(string phrase in SearchPhrases(text))
+            {
+                int count=Regex.Matches(phrase,@"\b[\p{L}\p{N}']+\b").Count;
+                if(count>=4 && count<=32)eligible.Add(phrase);
+            }
+            if(eligible.Count==0 || limit<=0)return new List<string>();
+            if(latestOnly)return new List<string>{eligible[eligible.Count-1]};
+            if(eligible.Count<=limit)return eligible;
+            if(limit==1)return new List<string>{eligible[eligible.Count-1]};
+            return new List<string>{eligible[0],eligible[eligible.Count-1]};
+        }
         public ScriptureDetection SemanticCandidate(int id,string heard,double score)
         {
             if(id<0 || id>=entries.Count)return null;Entry e=entries[id];
@@ -2855,10 +3042,17 @@ namespace EasyWorshipControllerMvp
 
     internal static class SemanticEvidencePolicy
     {
-        // Short or weak meaning matches flooded the 30-minute replay. This
-        // filters review-only alternatives; it never grants automatic output.
-        public static bool Qualified(string heard,double rerankerScore)
-        {return rerankerScore>=4.5 && Regex.Matches(heard??string.Empty,@"\b[\p{L}\p{N}']+\b").Count>=7;}
+        private static readonly HashSet<string> shortPhraseStop=new HashSet<string>(("a an and are as at be been but by for from has have he her here him his i in into is it its my of on or our she so that the their them there they this to was we were what when where which who with you your ye all not no pray father thank worship church" ).Split(' '));
+        // Longer speech retains the replay-tested gate. Short, distinctive fragments
+        // use stronger retrieval/reranker thresholds and remain review-only.
+        public static bool Qualified(string heard,double cosine,double rerankerScore)
+        {
+            MatchCollection matches=Regex.Matches(heard??string.Empty,@"\b[\p{L}\p{N}']+\b");
+            if(matches.Count>=7)return rerankerScore>=4.5;
+            if(matches.Count<4 || cosine<0.62 || rerankerScore<5.5)return false;
+            HashSet<string> informative=new HashSet<string>();foreach(Match match in matches){string token=match.Value.ToLowerInvariant();if(!shortPhraseStop.Contains(token))informative.Add(token);}
+            return informative.Count>=2;
+        }
     }
 
     internal sealed class OfflineSemanticSearch : IDisposable
@@ -2876,10 +3070,10 @@ namespace EasyWorshipControllerMvp
         {
             if(DateTime.UtcNow<retryAfter)return new List<ScriptureDetection>();
             try{return FindCore(index,text);}
-            catch(Exception)
+            catch(Exception ex)
             {
                 Dispose();retryAfter=DateTime.UtcNow.AddSeconds(60);
-                Status="Lexical search ready; semantic search unavailable (retry in 1 min)";
+                Status="Lexical search ready; semantic search failed: "+ex.GetType().Name+" (retry in 1 min)";
                 return new List<ScriptureDetection>();
             }
         }
@@ -2906,7 +3100,7 @@ namespace EasyWorshipControllerMvp
                 string[] fields=record.Split(',');int id;double score,rerank;
                 if(fields.Length==3 && int.TryParse(fields[0],out id) && double.TryParse(fields[1],System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out score) &&
                     double.TryParse(fields[2],System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out rerank))
-                {if(!SemanticEvidencePolicy.Qualified(text,rerank))continue;
+                {if(!SemanticEvidencePolicy.Qualified(text,score,rerank))continue;
                  ScriptureDetection d=index.SemanticCandidate(id,text,score);if(d!=null){d.SemanticScore=score;d.RerankerScore=rerank;results.Add(d);}
                  if(results.Count>=3)break;}
             }
@@ -2943,6 +3137,7 @@ namespace EasyWorshipControllerMvp
         public int Session;
         public int TailSilenceMs;
         public long AudioStartSample, AudioEndSample;
+        public int EngineEpoch=0;
         public bool IsRefinement;
         public long ReferenceRevision;
         public string ReferenceAnchor;
@@ -3716,10 +3911,21 @@ namespace EasyWorshipControllerMvp
         private string failure;
         private int queuedBytes;
         private int disposed;
+        private string diagnosticSessionId;
+        private Action<string> diagnosticLogger;
+        private System.Threading.Timer resourceTimer;
+        private readonly object resourceGate=new object();
+        private long lastResourceTicks;
+        private TimeSpan lastNativeCpu,lastWorkerCpu,lastAppCpu;
+        private long sentFrames,sentSamples,droppedFrames,droppedSamples;
         public Action<string,SpeechChunk,bool,double> Transcript;
         public Action<string> Error;
         private long origin;
         private int session;
+        public long AudioOffsetSamples;
+        public long IgnoreOutputThroughSample;
+        public long UtteranceIdOffset;
+        public int EngineEpoch;
         public string Name { get; private set; }
         public int NativeProcessId { get; private set; }
         public int WorkerProcessId { get; private set; }
@@ -3728,8 +3934,10 @@ namespace EasyWorshipControllerMvp
         public double BacklogSeconds {get{return Math.Max(0,(Interlocked.Read(ref receivedSamples)-Interlocked.Read(ref processedSamples))/16000.0);}}
         public void Start(string size,int generation,Action<string> log)
         {
-            Name=size=="nemotron"?"Nemotron":"Moonshine";
-            session=generation;origin=Stopwatch.GetTimestamp();
+            Name=size=="nemotron"?"Nemotron":size=="parakeet"?"Parakeet Realtime":"Moonshine";
+            session=generation;origin=Stopwatch.GetTimestamp();diagnosticLogger=log;
+            diagnosticSessionId=Guid.NewGuid().ToString("N");
+            if(Name=="Nemotron")Log("Nemotron lifecycle: session="+diagnosticSessionId+" event=start generation="+generation);
             string app=AppDomain.CurrentDomain.BaseDirectory,root=Path.GetFullPath(Path.Combine(app,".."));
             string python=Path.Combine(root,"benchmarks","tools","moonshine-env","Scripts","python.exe");
             string model=Path.Combine(root,"benchmarks","tools","moonshine-models","download.moonshine.ai","model",size+"-streaming-en","quantized_26_08_21");
@@ -3745,12 +3953,27 @@ namespace EasyWorshipControllerMvp
                     python=Path.Combine(installed,"python","python.exe");model=installed;manifest=Path.Combine(installed,"manifest.json");
                 }
             }
+            else if(size=="parakeet"){
+                string installed=Path.Combine(app,"speech-packages","parakeet-eou-120m-v1");
+                string nemotron=Path.Combine(app,"speech-packages","nemotron-q8-v1");
+                python=Path.Combine(nemotron,"python","python.exe");
+                if(!File.Exists(python))python=Path.Combine(root,"benchmarks","tools","parakeet-env","Scripts","python.exe");
+                model=installed;manifest=Path.Combine(installed,"manifest.json");
+                script=Path.Combine(app,"speech-runtime","parakeet_worker.py");
+            }
             if(!File.Exists(python)||!File.Exists(manifest)||!File.Exists(script)||!Directory.Exists(model))throw new FileNotFoundException(Name+" evaluation runtime/model is not installed in this checkout.");
-            worker=new Process();worker.StartInfo=new ProcessStartInfo(python,"-u \""+script+"\" \""+model+"\" \""+manifest+"\"")
+            string workerArguments="-u \""+script+"\" \""+model+"\" \""+manifest+"\""+(Name!="Moonshine"?" \""+diagnosticSessionId+"\"":string.Empty);
+            worker=new Process();worker.StartInfo=new ProcessStartInfo(python,workerArguments)
             {UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true};
             worker.StartInfo.EnvironmentVariables["MOONSHINE_ORT_SINGLE_THREAD"]="0";
             worker.ErrorDataReceived+=delegate(object sender,DataReceivedEventArgs e){if(e.Data!=null)log(Name+": "+e.Data);};
+            worker.EnableRaisingEvents=true;
+            worker.Exited+=delegate{
+                try{if(Name!="Moonshine")Log(Name+" lifecycle: session="+diagnosticSessionId+" event=worker_exit pid="+worker.Id+" exit_code="+worker.ExitCode+" disposed="+(Volatile.Read(ref disposed)!=0));}
+                catch(Exception ex){if(Name!="Moonshine")Log(Name+" lifecycle: session="+diagnosticSessionId+" event=worker_exit_status_unavailable error="+ex.GetType().Name+": "+ex.Message);}
+            };
             worker.Start();worker.BeginErrorReadLine();
+            if(Name=="Nemotron")resourceTimer=new System.Threading.Timer(SampleResources,null,5000,5000);
             reader=new Thread(Read);reader.IsBackground=true;reader.Start();
             if(!ready.WaitOne(60000)||failure!=null){Dispose();throw new InvalidOperationException(failure??Name+" startup timed out");}
             origin=Stopwatch.GetTimestamp();
@@ -3758,7 +3981,9 @@ namespace EasyWorshipControllerMvp
         }
         private void Fail(string message)
         {
-            if(aborted || Interlocked.CompareExchange(ref failure,message,null)!=null)return;ready.Set();
+            if(aborted || Interlocked.CompareExchange(ref failure,message,null)!=null)return;
+            if(Name=="Nemotron")Log("Nemotron lifecycle: session="+diagnosticSessionId+" event=transport_failure message="+message);
+            ready.Set();
             if(Error!=null)Error(message);
         }
         private void Read()
@@ -3770,6 +3995,11 @@ namespace EasyWorshipControllerMvp
                     if(parts[0]=="DONE"){finished=true;return;}
                     if(parts[0]=="SERVER" && parts.Length==2){NativeProcessId=int.Parse(parts[1]);continue;}
                     if(parts[0]=="WORKER" && parts.Length==2){WorkerProcessId=int.Parse(parts[1]);continue;}
+                    if(parts[0]=="DIAG" && parts.Length==2){
+                        string payload=Encoding.UTF8.GetString(Convert.FromBase64String(parts[1]));
+                        if(Name!="Moonshine")Log(Name+" trace: "+payload);
+                        continue;
+                    }
                     if(parts[0]=="PROGRESS" && (parts.Length==2 || parts.Length==3)){
                         Interlocked.Exchange(ref processedSamples,long.Parse(parts[1]));int queued;lock(pending)queued=queuedBytes;
                         if(Progress!=null)Progress(Interlocked.Read(ref receivedSamples),Interlocked.Read(ref processedSamples),queued,
@@ -3778,10 +4008,11 @@ namespace EasyWorshipControllerMvp
                     }
                     if(parts[0]=="ERROR"){Fail(Encoding.UTF8.GetString(Convert.FromBase64String(parts[1])));return;}
                     if(parts.Length!=5 || (parts[0]!="PARTIAL" && parts[0]!="FINAL"))throw new IOException("Invalid "+Name+" response");
-                    long id=long.Parse(parts[1]),start=long.Parse(parts[2]),end=long.Parse(parts[3]);
+                    long id=long.Parse(parts[1])+Interlocked.Read(ref UtteranceIdOffset),start=long.Parse(parts[2])+Interlocked.Read(ref AudioOffsetSamples),end=long.Parse(parts[3])+Interlocked.Read(ref AudioOffsetSamples);
+                    if(end<=Interlocked.Read(ref IgnoreOutputThroughSample))continue;
                     if(Name=="Moonshine")Interlocked.Exchange(ref processedSamples,end);
                     long lastVoice=origin+(long)(end/16000.0*Stopwatch.Frequency);
-                    var chunk=new SpeechChunk{Pcm=new byte[0],Session=session,UtteranceId=id,IsFinal=parts[0]=="FINAL",AudioStartSample=start,AudioEndSample=end,LastVoiceTicks=lastVoice,QueuedTicks=lastVoice};
+                    var chunk=new SpeechChunk{Pcm=new byte[0],Session=session,EngineEpoch=EngineEpoch,UtteranceId=id,IsFinal=parts[0]=="FINAL",AudioStartSample=start,AudioEndSample=end,LastVoiceTicks=lastVoice,QueuedTicks=lastVoice};
                     if(Transcript!=null)Transcript(Encoding.UTF8.GetString(Convert.FromBase64String(parts[4])),chunk,chunk.IsFinal,Math.Max(0,(Stopwatch.GetTimestamp()-lastVoice)*1000.0/Stopwatch.Frequency));
                 }
                 if(!aborted && !finished)Fail(Name+" stopped before flushing the stream");
@@ -3792,7 +4023,7 @@ namespace EasyWorshipControllerMvp
             bool overflow=false;
             lock(pending){if(ending||aborted||failure!=null)return;if(queuedBytes+pcm.Length>640000)overflow=true;else{pending.Enqueue((byte[])pcm.Clone());queuedBytes+=pcm.Length;}}
             Interlocked.Add(ref receivedSamples,pcm.Length/2);
-            if(overflow){Fail(Name+" fell over 20 seconds behind. Listening stopped; choose a lighter speech engine.");return;}
+            if(overflow){Interlocked.Increment(ref droppedFrames);Interlocked.Add(ref droppedSamples,pcm.Length/2);Fail(Name+" fell over 20 seconds behind. Listening stopped; choose a lighter speech engine.");return;}
             wake.Set();
         }
         private void Write()
@@ -3802,20 +4033,52 @@ namespace EasyWorshipControllerMvp
                 while(!aborted){byte[] pcm=null;lock(pending){if(pending.Count>0){pcm=pending.Dequeue();queuedBytes-=pcm.Length;}else if(ending)break;}
                     if(pcm==null){wake.WaitOne(100);continue;}
                     // Transport packets are not utterances: keep one native stream open.
-                    for(int offset=0;offset<pcm.Length;offset+=3200){int count=Math.Min(3200,pcm.Length-offset);output.Write(count);output.Write(pcm,offset,count);output.Flush();}
+                    for(int offset=0;offset<pcm.Length;offset+=3200){int count=Math.Min(3200,pcm.Length-offset);output.Write(count);output.Write(pcm,offset,count);output.Flush();
+                        Interlocked.Increment(ref sentFrames);Interlocked.Add(ref sentSamples,count/2);}
                 }
                 if(!aborted){output.Write(0);output.Flush();}
             }catch(Exception ex){Fail(ex.Message);}
         }
         public void Finish()
         {
+            if(Name=="Nemotron")Log("Nemotron lifecycle: session="+diagnosticSessionId+" event=flush_requested");
             ending=true;wake.Set();
-            if(reader!=null && !reader.Join(30000))throw new TimeoutException(Name+" flush timed out; remaining audio was not confirmed");
+            if(reader!=null && !reader.Join(30000)){if(Name=="Nemotron")Log("Nemotron lifecycle: session="+diagnosticSessionId+" event=flush_timeout");throw new TimeoutException(Name+" flush timed out; remaining audio was not confirmed");}
             if(failure!=null)throw new IOException(failure);
+            if(Name=="Nemotron")Log("Nemotron lifecycle: session="+diagnosticSessionId+" event=flush_confirmed");
+        }
+        private void SampleResources(object state)
+        {
+            if(Name!="Nemotron" || Volatile.Read(ref disposed)!=0)return;
+            lock(resourceGate){
+                long now=Stopwatch.GetTimestamp();double seconds=lastResourceTicks==0?0:(now-lastResourceTicks)/(double)Stopwatch.Frequency;
+                int nativePid=NativeProcessId,workerPid=WorkerProcessId;double nativeCpu=0,workerCpu=0,appCpu=0;
+                long nativeMemory=0,workerMemory=0,appMemory=0;string nativeState="unavailable",workerState="unavailable";
+                try{if(nativePid<=0)nativeState="starting";else using(Process p=Process.GetProcessById(nativePid)){p.Refresh();TimeSpan cpu=p.TotalProcessorTime;if(seconds>0 && lastNativeCpu>TimeSpan.Zero)nativeCpu=Math.Max(0,(cpu-lastNativeCpu).TotalSeconds/seconds*100.0);lastNativeCpu=cpu;nativeMemory=p.WorkingSet64;nativeState=p.HasExited?"exited":"running";}}
+                catch(Exception ex){nativeState=ex.GetType().Name;}
+                try{if(workerPid<=0)workerState="starting";else using(Process p=Process.GetProcessById(workerPid)){p.Refresh();TimeSpan cpu=p.TotalProcessorTime;if(seconds>0 && lastWorkerCpu>TimeSpan.Zero)workerCpu=Math.Max(0,(cpu-lastWorkerCpu).TotalSeconds/seconds*100.0);lastWorkerCpu=cpu;workerMemory=p.WorkingSet64;workerState=p.HasExited?"exited":"running";}}
+                catch(Exception ex){workerState=ex.GetType().Name;}
+                try{using(Process p=Process.GetCurrentProcess()){p.Refresh();TimeSpan cpu=p.TotalProcessorTime;if(seconds>0 && lastAppCpu>TimeSpan.Zero)appCpu=Math.Max(0,(cpu-lastAppCpu).TotalSeconds/seconds*100.0);lastAppCpu=cpu;appMemory=p.WorkingSet64;}}
+                catch{}
+                long received=Interlocked.Read(ref receivedSamples),processed=Interlocked.Read(ref processedSamples);
+                int queued,queuedFrames;lock(pending){queued=queuedBytes;queuedFrames=pending.Count;}
+                Log(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Nemotron resources: session={0} native_pid={1} native_state={2} native_cpu_pct={3:0.0} native_working_mb={4:0.0} worker_pid={5} worker_state={6} worker_cpu_pct={7:0.0} worker_working_mb={8:0.0} app_cpu_pct={9:0.0} app_working_mb={10:0.0} frames_sent={11} samples_sent={12} pong_echoed_samples={13} audio_received_s={14:0.00} unconfirmed_audio_s={15:0.00} queue_frames={16} queue_bytes={17} dropped_frames={18} dropped_audio_s={19:0.00}",
+                    diagnosticSessionId,nativePid,nativeState,nativeCpu,nativeMemory/(1024.0*1024.0),workerPid,workerState,workerCpu,workerMemory/(1024.0*1024.0),appCpu,appMemory/(1024.0*1024.0),
+                    Interlocked.Read(ref sentFrames),Interlocked.Read(ref sentSamples),processed,received/16000.0,Math.Max(0,received-processed)/16000.0,queuedFrames,queued,
+                    Interlocked.Read(ref droppedFrames),Interlocked.Read(ref droppedSamples)/16000.0));
+                lastResourceTicks=now;
+            }
+        }
+        private void Log(string message)
+        {
+            Action<string> l=diagnosticLogger;if(l!=null)l(message);
         }
         public void Dispose()
         {
             if(Interlocked.Exchange(ref disposed,1)!=0)return;
+            if(resourceTimer!=null){resourceTimer.Dispose();resourceTimer=null;}
+            if(Name!="Moonshine")Log(Name+" lifecycle: session="+diagnosticSessionId+" event=dispose native_pid="+NativeProcessId+" worker_pid="+WorkerProcessId+" failure="+(failure??"none"));
             aborted=true;ending=true;wake.Set();
             if(worker!=null){try{if(!worker.HasExited)worker.Kill();}catch{} }
             if(writer!=null && writer!=Thread.CurrentThread)writer.Join(2000);
@@ -4018,14 +4281,19 @@ namespace EasyWorshipControllerMvp
         private readonly QuotationContext quotationContext = new QuotationContext();
         private string lastQuotationReference = string.Empty;
         private readonly List<SpeechChunk> whisperQueue = new List<SpeechChunk>();
+        private readonly RecentSpeechAudio sessionAudioHistory = new RecentSpeechAudio();
+        private readonly object audioRouteGate = new object();
         private bool whisperWorkerRunning;
         private volatile int listeningSession;
         private volatile bool useLocalAi;
+        private int failoverInProgress, speechEngineEpoch;
+        private long speechAudioOffsetSamples, ignoreSpeechThroughSample, speechUtteranceOffset;
         private bool startingListening;
         private CheckBox earlyResultsCheck;
         private readonly CheckBox refinementCheck=new GazelyToggle{Name="RefinementCheck",Text="Recheck unclear references (experimental)",Checked=false};
         private long lastFinalUtteranceId;
         private readonly string diagnosticPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "scripture-diagnostics.log");
+        private static readonly object diagnosticFileGate = new object();
         private ScriptureDetection lastDetection;
         private string lastAutoSignature = string.Empty;
         private DateTime lastAutoActionUtc = DateTime.MinValue;
@@ -4234,10 +4502,10 @@ namespace EasyWorshipControllerMvp
             mapEditor.Width = 920;
             mapEditor.Height = 430;
             mapEditor.Multiline = true;
-            mapEditor.ScrollBars = ScrollBars.Both;
+            mapEditor.ScrollBars = ScrollBars.Vertical;
             mapEditor.AcceptsReturn = true;
             mapEditor.AcceptsTab = false;
-            mapEditor.WordWrap = false;
+            mapEditor.WordWrap = true;
             mapEditor.Font = new Font("Consolas", 10);
             mapEditor.Anchor =
                 AnchorStyles.Top |
@@ -4473,6 +4741,7 @@ namespace EasyWorshipControllerMvp
             speechEngineCombo.DropDownStyle = ComboBoxStyle.DropDownList;
             speechEngineCombo.Items.Add(new SpeechEngineChoice("whisper","Whisper — Lightweight"));
             speechEngineCombo.Items.Add(new SpeechEngineChoice("nemotron","Nemotron — Accurate"));
+            speechEngineCombo.Items.Add(new SpeechEngineChoice("parakeet","Parakeet — Fast fallback"));
 
             speechEngineCombo.SelectedIndex = 0;
             speechEngineCombo.SelectedIndexChanged += delegate
@@ -4807,7 +5076,7 @@ namespace EasyWorshipControllerMvp
 
             whisperModelCombo.Visible = whisper;
             recognizerCombo.Visible = false;
-            if(nemotronProfileHint!=null)nemotronProfileHint.Visible=!whisper;
+            if(nemotronProfileHint!=null){nemotronProfileHint.Visible=!whisper;nemotronProfileHint.Text=SelectedSpeechEngineId=="parakeet"?"Parakeet EOU 120M (176 MB); fallback to Whisper if it fails.":"Nemotron leads; Gazely can fall back to Parakeet, then Whisper.";}
             if(autoLiveCheck!=null)autoLiveCheck.Enabled=true;
             if(autoPreviewCheck!=null)autoPreviewCheck.Enabled=true;
 
@@ -4988,15 +5257,20 @@ namespace EasyWorshipControllerMvp
 
             bool useWhisper =
                 SelectedSpeechEngineId=="whisper";
-            useNativeStreaming=SelectedSpeechEngineId=="nemotron";
+            useNativeStreaming=SelectedSpeechEngineId=="nemotron" || SelectedSpeechEngineId=="parakeet";
 
             int startupSession=++listeningSession;
+            AddLog("Audio session start requested: generation="+startupSession+" engine="+SelectedSpeechEngineId+" source="+device.Name);
             try
             {
                 startingListening = true;
                 listeningState=ListeningState.Starting;
                 lastFinalUtteranceId = 0;
                 useLocalAi = useWhisper;
+                Interlocked.Exchange(ref failoverInProgress,0);
+                Interlocked.Exchange(ref speechEngineEpoch,0);
+                speechAudioOffsetSamples=0;ignoreSpeechThroughSample=0;speechUtteranceOffset=0;
+                sessionAudioHistory.Reset();
                 UpdateAudioControls();
                 ApplyVadSensitivity();
                 utteranceSegmenter.Reset();
@@ -5058,30 +5332,37 @@ namespace EasyWorshipControllerMvp
                 else if(useNativeStreaming)
                 {
                     int generation=listeningSession;
-                    streamingEngine=new StreamingSpeechEngine();
-                    string streamingName="Nemotron";
-                    long lastProgressLog=0;
-                    streamingEngine.Progress=delegate(long received,long acknowledged,int queued,double turnaround){
-                        long now=Stopwatch.GetTimestamp();if((now-lastProgressLog)<5*Stopwatch.Frequency)return;lastProgressLog=now;
-                        AddLog(string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "{0} stream: received={1:0.0}s acknowledged={2:0.0}s backlog={3:0.0}ms queue={4:0.0}ms ack roundtrip={5:0.0}ms",
-                            streamingName,received/16000.0,acknowledged/16000.0,Math.Max(0,received-acknowledged)/16.0,queued/32.0,turnaround));
-                    };
-                    streamingEngine.Transcript=delegate(string text,SpeechChunk chunk,bool final,double delay){
-                        if(final)OnFinalTranscript(text,1.0,streamingName,delay,generation,chunk);
-                        else OnPartialTranscript(text,chunk,delay);
-                    };
-                    streamingEngine.Error=delegate(string message){
-                        AddLog(streamingName+" error: "+message);
-                        if(!IsDisposed && IsHandleCreated)BeginInvoke((MethodInvoker)delegate{
-                            if(generation!=listeningSession)return;
-                            drainingStreaming=true;StopListening();drainingStreaming=false;
-                            recognizerStatusLabel.Text=streamingName+" stopped: "+message;SetWhisperStatus("AI ERROR",Color.FromArgb(190,48,48));
-                        });
-                    };
-                    StreamingSpeechEngine loadingStream=streamingEngine;
-                    await System.Threading.Tasks.Task.Run(delegate{loadingStream.Start("nemotron",generation,AddLog);});
-                    if(IsDisposed || closingApplication || startupSession!=listeningSession){await System.Threading.Tasks.Task.Run(delegate{loadingStream.Dispose();});return;}
+                    string selected=SelectedSpeechEngineId;
+                    StreamingSpeechEngine loadingStream=CreateStreamingEngine(selected,generation,0,0,0,0);
+                    streamingEngine=loadingStream;
+                    Exception firstError=null;
+                    try{await System.Threading.Tasks.Task.Run(delegate{loadingStream.Start(selected,generation,AddLog);});}
+                    catch(Exception ex){firstError=ex;}
+                    if(firstError!=null)
+                    {
+                        await System.Threading.Tasks.Task.Run(delegate{loadingStream.Dispose();});streamingEngine=null;
+                        AddLog(selected+" startup failed: "+firstError.Message);
+                        int fallbackEpoch=1;bool streamingReady=false;
+                if(selected=="nemotron")
+                        {
+                            StreamingSpeechEngine parakeet=CreateStreamingEngine("parakeet",generation,fallbackEpoch,0,0,0);
+                            Exception parakeetError=null;
+                            try{await System.Threading.Tasks.Task.Run(delegate{parakeet.Start("parakeet",generation,AddLog);});}
+                            catch(Exception ex){parakeetError=ex;}
+                            if(parakeetError==null){streamingEngine=parakeet;streamingReady=true;Interlocked.Exchange(ref speechEngineEpoch,fallbackEpoch);AddLog("Startup fallback active: Parakeet Realtime.");}
+                            else{await System.Threading.Tasks.Task.Run(delegate{parakeet.Dispose();});AddLog("Parakeet startup fallback failed: "+parakeetError.Message);}
+                        }
+                        if(!streamingReady)
+                        {
+                            string fallbackModel=GetWhisperFallbackModel();var whisperFallback=new WhisperServerEngine();
+                            try{await System.Threading.Tasks.Task.Run(delegate{whisperFallback.Start(fallbackModel,AddLog);});}
+                            catch{whisperFallback.Dispose();throw;}
+                            whisperEngine=whisperFallback;useNativeStreaming=false;useLocalAi=true;streamingEngine=null;
+                            Interlocked.Exchange(ref speechEngineEpoch,fallbackEpoch+1);
+                            AddLog("Startup fallback active: Whisper ("+fallbackModel+").");
+                        }
+                    }
+                    if(IsDisposed || closingApplication || startupSession!=listeningSession){StreamingSpeechEngine active=streamingEngine;if(active!=null)await System.Threading.Tasks.Task.Run(delegate{active.Dispose();});if(useLocalAi)await System.Threading.Tasks.Task.Run(delegate{whisperEngine.Dispose();});return;}
                     SetWhisperStatus("AI READY",Color.FromArgb(35,145,82));
                 }
                 else
@@ -5124,7 +5405,7 @@ namespace EasyWorshipControllerMvp
                     "Audio source started: " +
                     device.Name);
 
-                if (!useWhisper && !useNativeStreaming)
+                if (!useLocalAi && !useNativeStreaming)
                 {
                     RecognizerItem recognizer =
                         recognizerCombo.SelectedItem as RecognizerItem;
@@ -5197,20 +5478,121 @@ namespace EasyWorshipControllerMvp
             }
         }
 
+        private StreamingSpeechEngine CreateStreamingEngine(string engineId,int generation,int epoch,long audioOffset,long ignoreThrough,long utteranceOffset)
+        {
+            string engineName=engineId=="nemotron"?"Nemotron":"Parakeet Realtime";
+            var engine=new StreamingSpeechEngine();engine.EngineEpoch=epoch;engine.AudioOffsetSamples=audioOffset;
+            engine.IgnoreOutputThroughSample=ignoreThrough;engine.UtteranceIdOffset=utteranceOffset;
+            long lastProgressLog=0;
+            engine.Progress=delegate(long received,long acknowledged,int queued,double turnaround){
+                long now=Stopwatch.GetTimestamp();if(now-lastProgressLog<5*Stopwatch.Frequency)return;lastProgressLog=now;
+                AddLog(string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "{0} stream: received={1:0.0}s acknowledged={2:0.0}s backlog={3:0.0}ms queue={4:0.0}ms ack roundtrip={5:0.0}ms",
+                    engineName,received/16000.0,acknowledged/16000.0,Math.Max(0,received-acknowledged)/16.0,queued/32.0,turnaround));
+            };
+            engine.Transcript=delegate(string text,SpeechChunk chunk,bool final,double delay){
+                if(generation!=listeningSession || epoch!=Volatile.Read(ref speechEngineEpoch))return;
+                speechUtteranceOffset=Math.Max(speechUtteranceOffset,chunk.UtteranceId);
+                if(final)OnFinalTranscript(text,1.0,engineName,delay,generation,chunk);else OnPartialTranscript(text,chunk,delay);
+            };
+            engine.Error=delegate(string message){
+                AddLog(engineName+" error: "+message);
+                if(!IsDisposed && IsHandleCreated)try{BeginInvoke((MethodInvoker)delegate{HandleStreamingFailure(generation,epoch,engineId,message);});}catch(InvalidOperationException){}
+            };
+            return engine;
+        }
+
+        private string GetWhisperFallbackModel()
+        {
+            string profile=whisperModelCombo.SelectedItem==null?"Fastest":whisperModelCombo.SelectedItem.ToString();
+            return profile=="More accurate"?"small.en":profile=="Balanced"?"base.en":"tiny.en";
+        }
+
+        private async void HandleStreamingFailure(int generation,int failedEpoch,string failedEngine,string reason)
+        {
+            if(generation!=listeningSession || !audioListening || failedEpoch!=Volatile.Read(ref speechEngineEpoch))return;
+            if(Interlocked.CompareExchange(ref failoverInProgress,1,0)!=0)
+            {
+                ThreadPool.QueueUserWorkItem(delegate{Thread.Sleep(350);if(!IsDisposed && IsHandleCreated)try{BeginInvoke((MethodInvoker)delegate{HandleStreamingFailure(generation,failedEpoch,failedEngine,reason);});}catch(InvalidOperationException){}});
+                return;
+            }
+            string failedName=failedEngine=="nemotron"?"Nemotron":"Parakeet";
+            AddLog("ASR failover started: "+failedName+" failed; preserving the current audio session. reason="+reason);
+            recognizerStatusLabel.Text=failedName+" failed — switching speech engine…";
+            SetWhisperStatus("AI FAILOVER",Color.FromArgb(198,135,31));
+            try
+            {
+                StreamingSpeechEngine failedStream=streamingEngine;
+                if(failedStream!=null)await System.Threading.Tasks.Task.Run(delegate{failedStream.Dispose();});
+                if(failedEngine=="nemotron")
+                {
+                    int nextEpoch=Interlocked.Increment(ref speechEngineEpoch);
+                    StreamingSpeechEngine next=CreateStreamingEngine("parakeet",generation,nextEpoch,0,0,speechUtteranceOffset);
+                    try{await System.Threading.Tasks.Task.Run(delegate{next.Start("parakeet",generation,AddLog);});}
+                    catch(Exception ex){next.Dispose();AddLog("Parakeet fallback startup failed: "+ex.Message);next=null;}
+                    if(next!=null)
+                    {
+                        lock(audioRouteGate)
+                        {
+                            if(generation!=listeningSession || !audioListening){next.Dispose();return;}
+                            SpeechChunk replay=sessionAudioHistory.Snapshot(16);next.AudioOffsetSamples=replay.AudioStartSample;
+                            next.IgnoreOutputThroughSample=replay.AudioEndSample;streamingEngine=next;useNativeStreaming=true;useLocalAi=false;
+                            next.AddAudio(replay.Pcm);
+                        }
+                        AddLog("ASR failover active: Parakeet Realtime; replayed recent audio for continuity.");
+                        recognizerStatusLabel.Text="Parakeet Realtime fallback ready";SetWhisperStatus("AI READY",Color.FromArgb(35,145,82));return;
+                    }
+                }
+
+                int whisperEpoch=Interlocked.Increment(ref speechEngineEpoch);
+                string model=GetWhisperFallbackModel();
+                var nextWhisper=new WhisperServerEngine();
+                try{await System.Threading.Tasks.Task.Run(delegate{nextWhisper.Start(model,AddLog);});}
+                catch(Exception ex){nextWhisper.Dispose();throw new InvalidOperationException("Whisper fallback could not start: "+ex.Message,ex);}
+                lock(audioRouteGate)
+                {
+                    if(generation!=listeningSession || !audioListening){nextWhisper.Dispose();return;}
+                    SpeechChunk replay=sessionAudioHistory.Snapshot(16);
+                    utteranceSegmenter.Reset();speechAudioOffsetSamples=replay.AudioStartSample;ignoreSpeechThroughSample=replay.AudioEndSample;
+                    speechUtteranceOffset=Math.Max(speechUtteranceOffset,lastFinalUtteranceId);
+                    speechEngineEpoch=whisperEpoch;whisperEngine=nextWhisper;streamingEngine=null;useNativeStreaming=false;useLocalAi=true;
+                    for(int offset=0;offset<replay.Pcm.Length;offset+=3200){int count=Math.Min(3200,replay.Pcm.Length-offset);byte[] packet=new byte[count];Buffer.BlockCopy(replay.Pcm,offset,packet,0,count);utteranceSegmenter.Process(packet);}
+                }
+                AddLog("ASR failover active: Whisper; replayed recent audio for continuity.");
+                recognizerStatusLabel.Text="Whisper fallback ready";SetWhisperStatus("AI READY",Color.FromArgb(35,145,82));
+            }
+            catch(Exception ex)
+            {
+                AddLog("ASR failover exhausted: "+ex.GetType().Name+": "+ex.Message);
+                if(generation==listeningSession && audioListening)
+                {
+                    recognizerStatusLabel.Text="All speech engines failed: "+ex.Message;
+                    Interlocked.Exchange(ref failoverInProgress,0);drainingStreaming=true;StopListening();drainingStreaming=false;
+                    SetWhisperStatus("AI ERROR",Color.FromArgb(190,48,48));
+                }
+            }
+            finally{Interlocked.Exchange(ref failoverInProgress,0);UpdateAudioControls();}
+        }
+
         private void StopListening()
         {
+            if(audioListening)AddLog("Audio session stop requested: generation="+listeningSession+" engine="+(streamingEngine==null?SelectedSpeechEngineId:streamingEngine.Name)+" draining="+drainingStreaming+" closing="+closingApplication);
             if(GazelyCloudBuild.Required)cloudAccess.End();
             listeningState=ListeningState.Stopping;
-            if((useNativeStreaming || useLocalAi) && audioListening && !drainingStreaming && !closingApplication)
+            if((useNativeStreaming || useLocalAi) && audioListening && !drainingStreaming && !closingApplication && Volatile.Read(ref failoverInProgress)==0)
             {
                 drainingStreaming=true;startingListening=true;
                 UpdateAudioControls();stopListeningButton.Enabled=false;
                 recognizerStatusLabel.Text="Finishing captured audio…";
                 StreamingSpeechEngine engine=streamingEngine;
+                // This deferred completion belongs to this session only. A stale
+                // flush must not stop a listening session started after it, and
+                // must not clear that newer session's starting state.
+                int drainSession=listeningSession;
                 ThreadPool.QueueUserWorkItem(delegate{
                     string error=null;try{
                         if(audioRecorder!=null)audioRecorder.Stop();
-                        if(useNativeStreaming)engine.Finish();
+                        if(useNativeStreaming && engine!=null)engine.Finish();
                         else{
                             utteranceSegmenter.CompleteInput();var timeout=Stopwatch.StartNew();
                             while(true){bool busy;lock(whisperQueue)busy=whisperWorkerRunning || whisperQueue.Count>0;if(!busy)break;if(timeout.ElapsedMilliseconds>30000)throw new TimeoutException("Final audio is still processing; transcription flush could not be confirmed");Thread.Sleep(20);}
@@ -5221,6 +5603,7 @@ namespace EasyWorshipControllerMvp
                     try{if(engine!=null)engine.Dispose();whisperEngine.Stop();}
                     catch(Exception ex){if(error==null)error=ex.Message;}
                     if(!IsDisposed && IsHandleCreated)BeginInvoke((MethodInvoker)delegate{
+                        if(drainSession!=listeningSession)return;
                         StopListening();drainingStreaming=false;startingListening=false;UpdateAudioControls();
                         if(error!=null){listeningState=ListeningState.Failed;recognizerStatusLabel.Text=error;UpdateAudioControls();}
                     });
@@ -5340,22 +5723,19 @@ namespace EasyWorshipControllerMvp
         {
             if (!audioListening)
                 return;
-
-            if(useNativeStreaming)
+            lock(audioRouteGate)
             {
-                if(streamingEngine!=null)streamingEngine.AddAudio(data);
-            }
-            else if (useLocalAi)
-            {
-                utteranceSegmenter.Process(data);
-            }
-            else
-            {
-                BlockingAudioStream stream =
-                    speechStream;
-
-                if (stream != null)
-                    stream.WriteChunk(data);
+                sessionAudioHistory.Append(data);
+                if(useNativeStreaming)
+                {
+                    if(streamingEngine!=null)streamingEngine.AddAudio(data);
+                }
+                else if (useLocalAi) utteranceSegmenter.Process(data);
+                else
+                {
+                    BlockingAudioStream stream=speechStream;
+                    if(stream!=null)stream.WriteChunk(data);
+                }
             }
         }
 
@@ -5363,6 +5743,11 @@ namespace EasyWorshipControllerMvp
         {
             if (!audioListening) return;
             chunk.Session = listeningSession;
+            chunk.EngineEpoch=Volatile.Read(ref speechEngineEpoch);
+            chunk.AudioStartSample+=speechAudioOffsetSamples;chunk.AudioEndSample+=speechAudioOffsetSamples;
+            chunk.UtteranceId+=speechUtteranceOffset;
+            if(chunk.AudioEndSample<=ignoreSpeechThroughSample)return;
+            speechUtteranceOffset=Math.Max(speechUtteranceOffset,chunk.UtteranceId);
             lock (whisperQueue)
             {
                 // Final work supersedes snapshots of the same utterance.
@@ -5502,16 +5887,35 @@ namespace EasyWorshipControllerMvp
             {
                 BeginInvoke((MethodInvoker)delegate
                 {
-                    if (!audioListening || chunk.Session != listeningSession ||
+                    if (!audioListening || chunk.Session != listeningSession || chunk.EngineEpoch!=Volatile.Read(ref speechEngineEpoch) ||
                         chunk.UtteranceId <= lastFinalUtteranceId) return;
                     RenderTranscript(chunk.Session+":"+chunk.UtteranceId,text,false);
                     try
                     {
                         scriptureDetector.SeedActiveReference(activeReference.Context);
                         ScriptureDetection candidate = scriptureDetector.Preview(text,true);
-                        // Native streaming revises numbers within a line. Anchor the
-                        // book immediately, but let final text supply numeric context.
-                        if(useNativeStreaming && candidate!=null){candidate=candidate.Snapshot();candidate.Chapter=0;candidate.Verse=0;candidate.VerseEnd=0;candidate.RequiresReview=true;}
+                        // Streaming parser context can miss an explicit reference
+                        // embedded earlier in the growing transcript. Recover the
+                        // latest complete spoken anchor from a bounded recent window.
+                        if(useNativeStreaming && !string.IsNullOrEmpty(text))
+                        {
+                            MatchCollection recentWords=Regex.Matches(text,@"\b[\p{L}\p{N}']+\b");
+                            int firstWord=Math.Max(0,recentWords.Count-80);
+                            List<string> recentParts=new List<string>();
+                            for(int i=firstWord;i<recentWords.Count;i++)recentParts.Add(recentWords[i].Value);
+                            string recent=string.Join(" ",recentParts.ToArray());
+                            List<ScriptureDetection> explicitReferences=new ScriptureDetector().FindMentionedReferences(recent);
+                            for(int i=explicitReferences.Count-1;i>=0;i--)
+                            {
+                                ScriptureDetection spoken=explicitReferences[i];
+                                if(spoken.Chapter>0 && spoken.Verse>0 &&
+                                    (candidate==null || candidate.Chapter==0 || candidate.Verse==0))
+                                {candidate=spoken;break;}
+                            }
+                        }
+                        // Keep a complete number visible as a provisional value. The
+                        // active reference remains unconfirmed, so this cannot present.
+                        if(useNativeStreaming && candidate!=null){candidate=candidate.Snapshot();candidate.RequiresReview=true;}
                         bool wasProvisional=activeReference.Provisional!=null;
                         activeReference.PreserveSelectedPassage(lastDetection,candidate);
                         activeReference.Preview(candidate);
@@ -5519,6 +5923,7 @@ namespace EasyWorshipControllerMvp
                             RecordSuggestion(candidate,true,chunk.Session+":"+chunk.UtteranceId);
                         if(!operatorDraft)RenderActiveReference(wasProvisional);
                         RequestReferenceRefinement(text,chunk);
+                        MaybeSearchPartialQuotations(text,chunk);
                         RefreshPassageAlternatives();
                     }
                     catch (Exception ex) { AddLog("Partial parser error: " + ex.Message); }
@@ -5640,6 +6045,7 @@ namespace EasyWorshipControllerMvp
                 BeginInvoke((MethodInvoker)delegate
                 {
                     if (!audioListening || session != listeningSession ||
+                        (chunk!=null && chunk.EngineEpoch!=Volatile.Read(ref speechEngineEpoch)) ||
                         (chunk != null && chunk.UtteranceId <= lastFinalUtteranceId))
                         return;
                     string clean =
@@ -5722,10 +6128,10 @@ namespace EasyWorshipControllerMvp
                     {
                         // A complete spoken reference takes the main passage even
                         // after an operator-selected quote, history row or draft.
-                        if(detection!=null && detection.Verse>0 && lastDetection!=null &&
+                        if(detection!=null && detection.Verse>0 &&
                             (detection.EvidenceKind=="explicit" || detection.EvidenceKind=="correction" || detection.EvidenceKind=="contextual" || detection.EvidenceKind=="navigation"))
                         {
-                            RememberPreviousPassage(detection);
+                            if(lastDetection!=null)RememberPreviousPassage(detection);
                             operatorDraft=false;
                         }
                     }
@@ -5794,6 +6200,10 @@ namespace EasyWorshipControllerMvp
         private bool quotationWorker;
         private readonly OfflineSemanticSearch semanticSearch=new OfflineSemanticSearch();
         private int candidateEpoch;
+        private long quotationSearchRevision;
+        private DateTime lastPartialQuotationUtc=DateTime.MinValue;
+        private long lastPartialQuotationUtterance=-1;
+        private int lastPartialQuotationWordCount;
         private DateTime lastSpeechDetectionUtc=DateTime.MinValue;
         private string quoteScopeBook;
         private int quoteScopeChapter;
@@ -5806,6 +6216,15 @@ namespace EasyWorshipControllerMvp
         private string quoteSwitchText=string.Empty;
         private bool IsClearQuoteSwitch(ScriptureDetection d)
         {return d.EvidenceKind=="quotation" && d.MatchScore>=0.94 && d.SourceText==quoteSwitchText && !(d.Reason??"").StartsWith("Shared wording");}
+        private static void MergeSemanticResults(List<ScriptureDetection> target,HashSet<string> seen,List<ScriptureDetection> incoming)
+        {
+            foreach(ScriptureDetection detection in incoming)
+            {
+                int existing=-1;for(int i=0;i<target.Count;i++)if(target[i].ReferenceText==detection.ReferenceText){existing=i;break;}
+                if(existing>=0){if(detection.RerankerScore>target[existing].RerankerScore)target[existing]=detection;continue;}
+                if(seen.Add(detection.ReferenceText))target.Add(detection);
+            }
+        }
         private static string ActiveReferenceText(ScriptureDetection d)
         {return d.Chapter==0?d.Book:d.Verse==0?d.Book+" "+d.Chapter+":…":d.ReferenceText;}
         private void RenderActiveReference(bool clearEmpty=false)
@@ -5832,19 +6251,19 @@ namespace EasyWorshipControllerMvp
             previewDetectedButton.Enabled=liveDetectedButton.Enabled=lastDetection!=null;
             RefreshPassageAlternatives();
         }
-        private void PublishQuotations(List<ScriptureDetection> results,int session,long revision,int epoch)
+        private void PublishQuotations(List<ScriptureDetection> results,int session,long revision,int epoch,long searchRevision,bool partial)
         {
             if(results.Count==0 || IsDisposed || !IsHandleCreated)return;
             BeginInvoke((MethodInvoker)delegate{
-                if(!audioListening || session!=listeningSession || epoch!=candidateEpoch)return;
+                if(!audioListening || session!=listeningSession || epoch!=candidateEpoch || searchRevision!=Interlocked.Read(ref quotationSearchRevision))return;
                 ScriptureDetection first=null;
                 foreach(ScriptureDetection result in results) {
-                    if(revision==interpretationRevision && passagePolicy.Observe(result,activeReference.Context,result.EvidenceEndSample/16000.0,
+                    if(!partial && revision==interpretationRevision && passagePolicy.Observe(result,activeReference.Context,result.EvidenceEndSample/16000.0,
                         quoteSwitchRevision==revision && IsClearQuoteSwitch(result),operatorDraft) && first==null)first=result;
                     RecordSuggestion(result,false,session+":candidate:"+epoch+":"+result.Signature);
-                    if(revision==interpretationRevision)RememberQuoteAlternative(result);
+                    if(!partial && revision==interpretationRevision)RememberQuoteAlternative(result);
                 }
-                if(revision==interpretationRevision)RefreshPassageAlternatives();
+                if(!partial && revision==interpretationRevision)RefreshPassageAlternatives();
                 if(first==null)return;
                 followingQuotation=true;lastQuotationReference=first.ReferenceText;
                 first.Reason+="; selected from advancing quotation evidence";
@@ -5857,8 +6276,30 @@ namespace EasyWorshipControllerMvp
             return activeReference.IsActive;
         }
 
-        private void FindQuotation(string text, string context, int session, long revision)
+        private void MaybeSearchPartialQuotations(string text,SpeechChunk chunk)
         {
+            if(string.IsNullOrWhiteSpace(text) || chunk==null || quotationIndex==null)return;
+            MatchCollection words=Regex.Matches(text,@"\b[\p{L}\p{N}']+\b");
+            if(words.Count<5)return;
+            bool newUtterance=chunk.UtteranceId!=lastPartialQuotationUtterance;
+            bool enoughGrowth=words.Count-lastPartialQuotationWordCount>=8;
+            bool elapsed=(DateTime.UtcNow-lastPartialQuotationUtc).TotalSeconds>=3.0;
+            if(!newUtterance && (!enoughGrowth || !elapsed))return;
+            lastPartialQuotationUtterance=chunk.UtteranceId;
+            lastPartialQuotationWordCount=words.Count;
+            lastPartialQuotationUtc=DateTime.UtcNow;
+            // A recent 24-word window keeps incremental lookup bounded while retaining
+            // enough wording for distinctive fragments and paraphrase retrieval.
+            int first=Math.Max(0,words.Count-24);
+            string[] recent=new string[words.Count-first];
+            for(int i=first;i<words.Count;i++)recent[i-first]=words[i].Value;
+            string query=string.Join(" ",recent);
+            FindQuotation(query,query,chunk.Session,Interlocked.Read(ref interpretationRevision),true);
+        }
+
+        private void FindQuotation(string text, string context, int session, long revision,bool partial=false)
+        {
+            long searchRevision=Interlocked.Increment(ref quotationSearchRevision);
             long evidenceStart=finalAudioStart,evidenceEnd=finalAudioEnd;
             int epoch=candidateEpoch;
             string semanticContext=quotationContext.RecentPair;
@@ -5872,7 +6313,8 @@ namespace EasyWorshipControllerMvp
             {
                 try
                 {
-                    if(IsDisposed || session!=listeningSession)return;
+                    if(IsDisposed || session!=listeningSession || revision!=Interlocked.Read(ref interpretationRevision) || searchRevision!=Interlocked.Read(ref quotationSearchRevision))return;
+                    System.Diagnostics.Stopwatch lookupTimer=System.Diagnostics.Stopwatch.StartNew();
                     List<ScriptureDetection> matches=index.FindAll(text);
                     Match transition=Regex.Match(text,@"\b(?:elsewhere\s+(?:the\s+)?(?:scripture|bible)\s+says|another\s+(?:scripture|passage)\s+says|in\s+another\s+place\s+(?:it\s+)?says)\b\s*[:,]?\s*(.+)$",RegexOptions.IgnoreCase);
                     if(transition.Success)foreach(ScriptureDetection moved in index.FindAll(transition.Groups[1].Value))
@@ -5887,38 +6329,46 @@ namespace EasyWorshipControllerMvp
                     // Parse each canonical book span so several explicit calls in one utterance survive.
                     foreach(ScriptureDetection d in new ScriptureDetector().FindMentionedReferences(text))if(seen.Add(d.ReferenceText))matches.Add(d);
                     foreach(ScriptureDetection d in matches){d.EvidenceStartSample=evidenceStart;d.EvidenceEndSample=evidenceEnd;}
-                    PublishQuotations(matches,session,revision,epoch);
-                    List<string> phrases=ScriptureQuoteIndex.SearchPhrases(text);
+                    lookupTimer.Stop();
+                    if(partial && (matches.Count>0 || lookupTimer.ElapsedMilliseconds>=500))AddLog("Partial quotation lookup: ms="+lookupTimer.ElapsedMilliseconds+" candidates="+matches.Count+" words="+Regex.Matches(text??string.Empty,@"\b[\p{L}\p{N}']+\b").Count);
+                    PublishQuotations(matches,session,revision,epoch,searchRevision,partial);
+                    List<string> phrases=ScriptureQuoteIndex.SemanticSearchPhrases(text,partial?1:2,partial);
                     bool hasEvidence=matches.Count>0;
                     bool hasScopeEvidence=currentScopeEvidence;
+                    List<ScriptureDetection> semanticMatches=new List<ScriptureDetection>();int semanticQueries=0;
                     foreach(string phrase in phrases)
                     {
-                        if(IsDisposed || session!=listeningSession || epoch!=candidateEpoch)return;
-                        if(phrase.Split(' ').Length<5)continue;
+                        if(IsDisposed || session!=listeningSession || epoch!=candidateEpoch || revision!=Interlocked.Read(ref interpretationRevision) || searchRevision!=Interlocked.Read(ref quotationSearchRevision))return;
+                        if(semanticQueries>=(partial?1:2))break;
+                        semanticQueries++;
                         List<ScriptureDetection> semantic=semanticSearch.Find(index,phrase);
+                        if(IsDisposed || session!=listeningSession || epoch!=candidateEpoch || revision!=Interlocked.Read(ref interpretationRevision) || searchRevision!=Interlocked.Read(ref quotationSearchRevision))return;
                         foreach(ScriptureDetection d in semantic){d.EvidenceStartSample=evidenceStart;d.EvidenceEndSample=evidenceEnd;}
                         hasEvidence|=semantic.Count>0;
                         hasScopeEvidence|=semantic.Exists(delegate(ScriptureDetection d){return d.Book==scopeBook && d.Chapter==scopeChapter;});
-                        semantic.RemoveAll(delegate(ScriptureDetection d){return !seen.Add(d.ReferenceText);});
-                        PublishQuotations(semantic,session,revision,epoch);
+                        MergeSemanticResults(semanticMatches,seen,semantic);
                     }
                     // Context can dilute a good match. Retry only an otherwise empty lookup.
-                    if((!hasEvidence || (!string.IsNullOrEmpty(scopeBook) && scopeChapter>0 && !hasScopeEvidence)) && context!=text && !IsDisposed && session==listeningSession && epoch==candidateEpoch)
+                    if(!partial && semanticQueries<3 && (!hasEvidence || (!string.IsNullOrEmpty(scopeBook) && scopeChapter>0 && !hasScopeEvidence)) && context!=text && !IsDisposed && session==listeningSession && epoch==candidateEpoch && revision==Interlocked.Read(ref interpretationRevision) && searchRevision==Interlocked.Read(ref quotationSearchRevision))
                     {
                         string[] words=Regex.Split(semanticContext.Trim(),@"\s+");
                         string joined=string.Join(" ",words,Math.Max(0,words.Length-40),Math.Min(40,words.Length));
                         if(!phrases.Contains(joined)) {
                             List<ScriptureDetection> contextual=semanticSearch.Find(index,joined);
                             foreach(ScriptureDetection d in contextual){d.ContextOnly=true;d.EvidenceStartSample=evidenceStart;d.EvidenceEndSample=evidenceEnd;}
-                            PublishQuotations(contextual,session,revision,epoch);
+                            MergeSemanticResults(semanticMatches,seen,contextual);
                         }
                     }
+                    semanticMatches.Sort(delegate(ScriptureDetection a,ScriptureDetection b){return b.RerankerScore.CompareTo(a.RerankerScore);});
+                    if(semanticMatches.Count>3)semanticMatches.RemoveRange(3,semanticMatches.Count-3);
+                    if(semanticMatches.Count>0)PublishQuotations(semanticMatches,session,revision,epoch,searchRevision,partial);
                     if(!IsDisposed && IsHandleCreated)BeginInvoke((MethodInvoker)delegate{if(candidateSearchStatus!=null)candidateSearchStatus.Text=semanticSearch.Status;});
                 }
                 catch(Exception ex) { semanticSearch.Dispose();AddLog("Quotation lookup failed: " + ex.Message); }
             };
             lock(quotationJobs)
             {
+                quotationJobs.Clear();
                 quotationJobs.Enqueue(job);if(quotationWorker)return;quotationWorker=true;
             }
             ThreadPool.QueueUserWorkItem(delegate{
@@ -6663,19 +7113,30 @@ namespace EasyWorshipControllerMvp
                 return;
             }
 
-            string line = string.Format(
-                "[{0}] {1}\r\n",
-                DateTime.Now.ToString("HH:mm:ss"),
-                message);
+            string[] messageLines=(message??string.Empty).Replace("\r\n","\n").Replace('\r','\n').Split('\n');
+            StringBuilder formatted=new StringBuilder();
+            foreach(string messageLine in messageLines)
+                formatted.Append('[').Append(DateTimeOffset.Now.ToString("yyyy-MM-dd'T'HH:mm:ss.fffzzz",System.Globalization.CultureInfo.InvariantCulture)).Append("] ").Append(messageLine).Append("\r\n");
+            string line=formatted.ToString();
 
             logTextBox.AppendText(line);
             if (logTextBox.TextLength > 60000)
                 logTextBox.Text = logTextBox.Text.Substring(logTextBox.TextLength - 40000);
             try
             {
-                if (File.Exists(diagnosticPath) && new FileInfo(diagnosticPath).Length > 2000000)
-                    File.WriteAllText(diagnosticPath, "Previous diagnostics rotated.\r\n", Encoding.UTF8);
-                File.AppendAllText(diagnosticPath, line, Encoding.UTF8);
+                lock(diagnosticFileGate){
+                    const long maxBytes=2000000;
+                    if(File.Exists(diagnosticPath) && new FileInfo(diagnosticPath).Length+Encoding.UTF8.GetByteCount(line)>maxBytes){
+                        for(int index=4;index>=1;index--){
+                            string source=index==1?diagnosticPath:diagnosticPath+"."+(index-1);
+                            string target=diagnosticPath+"."+index;
+                            if(!File.Exists(source))continue;
+                            if(File.Exists(target))File.Delete(target);
+                            File.Move(source,target);
+                        }
+                    }
+                    File.AppendAllText(diagnosticPath,line,Encoding.UTF8);
+                }
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }

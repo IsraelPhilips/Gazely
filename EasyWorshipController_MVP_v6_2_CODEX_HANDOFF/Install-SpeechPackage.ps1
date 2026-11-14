@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('whisper','nemotron')][string]$Engine='whisper',
+    [ValidateSet('whisper','nemotron','parakeet')][string]$Engine='whisper',
     [string]$CacheDirectory='',
     [string]$CancelFile='',
     [switch]$Offline,
@@ -98,6 +98,22 @@ try {
         'Licensed by NVIDIA Corporation under the NVIDIA Open Model License' | Set-Content -LiteralPath (Join-Path $staging 'licenses/NOTICE.txt') -Encoding UTF8
         & (Join-Path $staging 'python/python.exe') -c "import websocket,ctypes,hashlib; assert websocket.__version__ == '1.9.0'"
         if($LASTEXITCODE -ne 0){throw 'Offline Python/runtime import check failed.'}
+    }
+    if($Engine -eq 'parakeet') {
+        $model=$package.artifacts | Where-Object {$_.installedName -like '*.gguf'}
+        $dll=Get-ChildItem -LiteralPath (Join-Path $staging 'runtime') -Filter 'parakeet.dll' -File -Recurse | Select-Object -First 1
+        if(!$model -or !$dll){throw 'Parakeet model or native CPU runtime is missing.'}
+        @{model=@{path=('model/'+$model.installedName);bytes=$model.bytes;sha256=$model.sha256;url=$model.url}} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $staging 'manifest.json') -Encoding UTF8
+        @'
+Model: NVIDIA Parakeet Realtime EOU 120M, Q8_0 GGUF. Licensed under the NVIDIA Open Model License.
+Runtime: parakeet.cpp v0.6.1 Windows CPU shared library. See runtime\parakeet-v0.6.1-lib-win-cpu-x64\LICENSE (MIT).
+'@ | Set-Content -LiteralPath (Join-Path $staging 'licenses/NOTICE.txt') -Encoding UTF8
+        $python=Join-Path $root 'nemotron-q8-v1/python/python.exe'
+        if(Test-Path -LiteralPath $python){
+            $dllPath=$dll.FullName
+            & $python -c "import ctypes,os; d=ctypes.CDLL(r'$dllPath'); assert d.parakeet_capi_abi_version() >= 5"
+            if($LASTEXITCODE -ne 0){throw 'Parakeet native runtime ABI check failed.'}
+        }
     }
     $files=@(Get-ChildItem -LiteralPath $staging -Recurse -File | ForEach-Object {
         Check-Cancel

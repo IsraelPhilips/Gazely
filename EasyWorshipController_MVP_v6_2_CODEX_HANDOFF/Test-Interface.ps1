@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$OutputDirectory,[int]$Width=1020,[int]$Height=780,[switch]$Light,[switch]$Pronunciation,[switch]$FreeAccess)
+param([Parameter(Mandatory=$true)][string]$OutputDirectory,[int]$Width=1020,[int]$Height=780,[switch]$Light,[switch]$Pronunciation,[switch]$FreeAccess,[switch]$MiniOnly)
 $ErrorActionPreference='Stop'
 $output=[IO.Path]::GetFullPath($OutputDirectory)
 if(Test-Path -LiteralPath $output){throw 'Choose a new output directory to preserve screenshots.'}
@@ -40,6 +40,7 @@ namespace EasyWorshipControllerMvp {
    WorkspacePreferences.PathOverride=Path.Combine(args[0],"preferences-test.txt");
    GazelyCloudAccess.PathOverride=Path.Combine(args[0],"account-test");
    WorkspacePreferences.Save(new Dictionary<string,string>{{"onboarding.shown","True"}});
+   if(args.Length>5 && bool.Parse(args[5]))return RunMini(args);
    using(MainForm form=new MainForm()) {
     form.Size=new Size(int.Parse(args[1]),int.Parse(args[2]));
     GazelyTheme.Dark=!bool.Parse(args[3]);GazelyTheme.Apply(form);
@@ -104,6 +105,7 @@ namespace EasyWorshipControllerMvp {
     }
     Control[] navigation=form.Controls.Find("GazelyNavigation",true);
     if(navigation.Length!=1 || navigation[0].Controls.Count!=10 || navigation[0].Controls.Find("OpenMiniOverlay",true).Length!=1)throw new Exception("Navigation controls missing");
+    if(form.ClientSize.Width>=980 && Math.Abs(navigation[0].Controls[0].Top-navigation[0].Controls[9].Top)>4)throw new Exception("Compact navigation wrapped Mini onto a second row");
     foreach(Control button in navigation[0].Controls)
     {
      if(!button.Visible)continue;
@@ -120,6 +122,10 @@ namespace EasyWorshipControllerMvp {
     if(tabs.TabPages["versions"].Controls.Find("SetupBibleList",true).Length!=1)throw new Exception("Guided Bible version setup is missing");
     bool guideSeen=false;
     var firstRun=WorkspacePreferences.Load();firstRun.Remove("onboarding.shown");WorkspacePreferences.Save(firstRun);
+    var savedMap=(Dictionary<string,int>)typeof(MainForm).GetField("versionMap",flags).GetValue(form);savedMap.Clear();savedMap["KJV"]=0;
+    tabs.SelectedTab=tabs.TabPages["speech"];typeof(MainForm).GetMethod("ShowFirstRunGuide",flags).Invoke(form,null);
+    if(tabs.SelectedTab.Name!="workspace" || WorkspacePreferences.Load()["onboarding.shown"]!="True")throw new Exception("An existing Bible map should bypass setup onboarding and return to Live workspace");
+    firstRun=WorkspacePreferences.Load();firstRun.Remove("onboarding.shown");WorkspacePreferences.Save(firstRun);savedMap.Clear();
     using(var guideTimer=new System.Windows.Forms.Timer()){
      guideTimer.Interval=30;guideTimer.Tick+=delegate{
       foreach(Form open in Application.OpenForms)if(open!=form && open.Text=="Welcome to Gazely"){
@@ -129,6 +135,7 @@ namespace EasyWorshipControllerMvp {
      };guideTimer.Start();typeof(MainForm).GetMethod("ShowFirstRunGuide",flags).Invoke(form,null);
     }
     if(!guideSeen || tabs.SelectedTab.Name!="workspace" || WorkspacePreferences.Load()["onboarding.shown"]!="True")throw new Exception("First-run guide did not open and return to workspace");
+    typeof(MainForm).GetMethod("LoadVersionMap",flags).Invoke(form,null);
     bool bibleDialogSeen=false;
     using(var bibleTimer=new System.Windows.Forms.Timer()){
      bibleTimer.Interval=30;bibleTimer.Tick+=delegate{
@@ -162,7 +169,7 @@ namespace EasyWorshipControllerMvp {
     ComboBox model=(ComboBox)typeof(MainForm).GetField("whisperModelCombo",flags).GetValue(form);
     ComboBox recognizer=(ComboBox)typeof(MainForm).GetField("recognizerCombo",flags).GetValue(form);
     engine.SelectedIndex=1;Application.DoEvents();
-    if(engine.Items.Count!=2 || ((SpeechEngineChoice)engine.Items[1]).Id!="nemotron")throw new Exception("Nemotron selector missing");
+    if(engine.Items.Count!=3 || ((SpeechEngineChoice)engine.Items[1]).Id!="nemotron" || ((SpeechEngineChoice)engine.Items[2]).Id!="parakeet")throw new Exception("Speech engine selectors missing");
     engine.SelectedIndex=1;Application.DoEvents();
     if(model.Visible || recognizer.Visible || !((CheckBox)typeof(MainForm).GetField("autoLiveCheck",flags).GetValue(form)).Enabled)throw new Exception("Accurate engine controls are incorrect");
     engine.SelectedIndex=0;Application.DoEvents();if(!model.Visible || recognizer.Visible)throw new Exception("Local model selector broke");
@@ -227,6 +234,16 @@ namespace EasyWorshipControllerMvp {
     historyItem.SubItems[4].Text="Final suggestion";
     if(((ScriptureDetection)historyItem.Tag).RequiresReview)throw new Exception("History selection mutated the saved snapshot");
     Console.WriteLine("PASS: workspace history selection is review-only, snapshot-safe, and excludes provisional/unconfirmed actions.");
+    System.Reflection.MethodInfo deferCandidateRefresh=typeof(MainForm).GetMethod("ShouldDeferCandidateRefresh",flags);
+    System.Reflection.FieldInfo candidatePageField=typeof(MainForm).GetField("candidatePage",flags),candidateMenuField=typeof(MainForm).GetField("candidateMenuOpen",flags);
+    candidatePageField.SetValue(form,0);candidateMenuField.SetValue(form,false);
+    if((bool)deferCandidateRefresh.Invoke(form,null))throw new Exception("Newest detections must refresh while the pointer or focus remains on the live list");
+    candidatePageField.SetValue(form,1);
+    if(!(bool)deferCandidateRefresh.Invoke(form,null))throw new Exception("Browsing older detections must remain stable while new results arrive");
+    candidatePageField.SetValue(form,0);candidateMenuField.SetValue(form,true);
+    if(!(bool)deferCandidateRefresh.Invoke(form,null))throw new Exception("An open candidate menu must remain stable during result updates");
+    candidateMenuField.SetValue(form,false);
+    Console.WriteLine("PASS: newest detections refresh live; older pages and open candidate menus remain stable.");
     typeof(MainForm).GetMethod("ClearDetectionUi",flags).Invoke(form,null);
     typeof(MainForm).GetField("audioListening",flags).SetValue(form,true);
     final.Invoke(form,new object[]{"Genesis",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
@@ -500,8 +517,18 @@ namespace EasyWorshipControllerMvp {
     final.Invoke(form,new object[]{"daniel chapter two and verse forty six",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
     if(reference.Text!="Daniel 2:46" || active.Current.ReferenceText!="Daniel 2:46")throw new Exception("Spoken Daniel 2:46 stayed incomplete or only reached Detections: "+reference.Text);
     release.PerformClick();Application.DoEvents();
+    active.Confirm(new ScriptureDetection{Book="Mark",Chapter=2,Verse=0,EvidenceKind="draft",RequiresReview=true});
+    detector.Reset();typeof(MainForm).GetField("lastDetection",flags).SetValue(form,null);
+    final.Invoke(form,new object[]{"I want to show you guys something here",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    final.Invoke(form,new object[]{"Let's start from verse five",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Mark 2:5")throw new Exception("Conversational verse continuation did not promote the active chapter into SP: "+reference.Text);
+    typeof(MainForm).GetField("lastDetection",flags).SetValue(form,null);
+    typeof(MainForm).GetField("operatorDraft",flags).SetValue(form,true);
+    final.Invoke(form,new object[]{"give me six instead",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
+    if(reference.Text!="Mark 2:6" || typeof(MainForm).GetField("operatorDraft",flags).GetValue(form).Equals(true))throw new Exception("Verse correction failed to replace SP while an operator draft had no last detection: "+reference.Text);
+    release.PerformClick();Application.DoEvents();
     active.Confirm(new ScriptureDetection{Book="Leviticus",EvidenceKind="draft",RequiresReview=true});
-    Console.WriteLine("PASS: complete spoken anchor including reported Luke 1:17 replaces selected quote; incomplete speech keeps verse and earlier quote remains selectable.");
+    Console.WriteLine("PASS: complete spoken anchors, conversational Mark 2 verse continuation/correction, operator override, and quote alternatives update the main passage safely.");
     var recovery=(ReferenceRefinement)typeof(MainForm).GetField("referenceRefinement",flags).GetValue(form);
     var ring=new RecentSpeechAudio();ring.Append(new byte[32000]);
     recovery.UpdateIntent(active.Current.ReferenceText,session);recovery.Observe(1000,100);
@@ -526,6 +553,11 @@ namespace EasyWorshipControllerMvp {
     var miniType=typeof(MainForm).GetNestedType("MiniOverlay",System.Reflection.BindingFlags.NonPublic);
     var mini=(Form)Activator.CreateInstance(miniType,new object[]{form});
     typeof(MainForm).GetField("miniOverlay",flags).SetValue(form,mini);
+    var miniBody=(GazelyCard)miniType.GetField("body",flags).GetValue(mini);
+    var miniPassage=(GazelyCard)miniType.GetField("passage",flags).GetValue(mini);
+    var miniVersion=(Label)miniType.GetField("versionBadge",flags).GetValue(mini);
+    var miniLive=(Button)miniType.GetField("live",flags).GetValue(mini);
+    if((string)miniBody.Tag!="surface" || !miniBody.AccentEdge || (string)miniPassage.Tag!="surface" || !miniPassage.AccentEdge || miniVersion.Name!="MiniVersionBadge" || miniVersion.Text!="KJV" || miniLive.Text!="Present now" || (string)miniLive.Tag!="primary")throw new Exception("Mini visual hierarchy, version badge or primary action is missing");
     bool miniGuideSeen=false;miniType.GetField("monitorName",flags).SetValue(mini,"MISSING-TEST-MONITOR");
     using(var miniGuideTimer=new System.Windows.Forms.Timer()){
      miniGuideTimer.Interval=30;miniGuideTimer.Tick+=delegate{
@@ -548,6 +580,7 @@ namespace EasyWorshipControllerMvp {
       if(state!="Collapsed"){
        var miniVerse=(Label)miniType.GetField("versePreview",flags).GetValue(mini);
        if(!miniVerse.Visible || miniVerse.Text!=((Label)typeof(MainForm).GetField("verseExcerpt",flags).GetValue(form)).Text || !miniVerse.Text.StartsWith("KJV"))throw new Exception("Mini lacks the selected scripture text preview: state="+state+" visible="+miniVerse.Visible+" mini="+miniVerse.Text+" workspace="+((Label)typeof(MainForm).GetField("verseExcerpt",flags).GetValue(form)).Text);
+       if(miniVerse.Font.Name!="Georgia" || miniPassage.GetControlFromPosition(1,0)!=miniVersion || miniLive.Text!="Present now")throw new Exception("Mini scripture preview typography or output-version indicator is missing");
       }
       using(var bitmap=new Bitmap(mini.Width,mini.Height)){mini.DrawToBitmap(bitmap,new Rectangle(Point.Empty,mini.Size));bitmap.Save(Path.Combine(args[0],"overlay-"+state+".png"));}
       if(!Screen.FromControl(form).WorkingArea.Contains(mini.Bounds))throw new Exception("Overlay escaped operator monitor");
@@ -618,6 +651,45 @@ namespace EasyWorshipControllerMvp {
    Console.WriteLine("PASS: preferences restore across form instances without starting audio; mode changes save; unchanged cards retain identity.");
    return 0;
   }
+  private static int RunMini(string[] args) {
+   using(MainForm form=new MainForm()) {
+    form.Size=new Size(int.Parse(args[1]),int.Parse(args[2]));
+    GazelyTheme.Dark=!bool.Parse(args[3]);GazelyTheme.Apply(form);
+    form.ShowInTaskbar=false;form.StartPosition=FormStartPosition.Manual;form.Location=new Point(-20000,-20000);form.Show();Application.DoEvents();
+    var flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+    typeof(MainForm).GetMethod("ShowDetection",flags).Invoke(form,new object[]{new ScriptureDetection{Book="John",Chapter=3,Verse=16,RequiresReview=true,Confidence=.96}});
+    Label hostPreview=(Label)typeof(MainForm).GetField("verseExcerpt",flags).GetValue(form);hostPreview.Text="KJV · For God so loved the world, that he gave his only begotten Son.";
+    var record=typeof(MainForm).GetMethod("RecordSuggestion",flags);
+    for(int i=0;i<8;i++)record.Invoke(form,new object[]{new ScriptureDetection{Book="John",Chapter=3,Verse=i+1,Confidence=.9,RequiresReview=true,EvidenceKind="quotation",SourceText="Mini layout fixture"},false,"mini-fixture-"+i});
+    var type=typeof(MainForm).GetNestedType("MiniOverlay",flags);var mini=(Form)Activator.CreateInstance(type,new object[]{form});
+    type.GetField("monitorName",flags).SetValue(mini,Screen.FromControl(form).DeviceName);type.GetField("corner",flags).SetValue(mini,"Free");
+    type.GetMethod("RefreshState",flags).Invoke(mini,null);mini.Show();Application.DoEvents();
+    var body=(GazelyCard)type.GetField("body",flags).GetValue(mini);var passage=(GazelyCard)type.GetField("passage",flags).GetValue(mini);
+    var version=(Label)type.GetField("versionBadge",flags).GetValue(mini);var live=(Button)type.GetField("live",flags).GetValue(mini);
+    if((string)body.Tag!="surface" || !body.AccentEdge || (string)passage.Tag!="surface" || !passage.AccentEdge || version.Name!="MiniVersionBadge" || version.Text!="KJV" || live.Text!="Present now" || (string)live.Tag!="primary")throw new Exception("Mini visual hierarchy, version badge or primary action is missing");
+    foreach(string state in new[]{"Collapsed","Compact","Expanded"}) {
+     type.GetMethod("SetMode",flags).Invoke(mini,new object[]{state});Application.DoEvents();
+     if(state!="Collapsed") {
+      Label preview=(Label)type.GetField("versePreview",flags).GetValue(mini);
+      if(!preview.Visible || preview.Text!=hostPreview.Text || preview.Font.Name!="Georgia" || passage.GetControlFromPosition(1,0)!=version)throw new Exception("Mini scripture preview, typography or version badge failed in "+state);
+     }
+     if(state=="Expanded") {
+      var cards=(BufferedDetectionPanel)type.GetField("detections",flags).GetValue(mini);
+      if(mini.Width<430 || mini.Height>720 || mini.Height<560 || cards.Controls.Count!=8 || cards.Controls[0].Height!=80)throw new Exception("Expanded Mini must retain its minimum width and show eight correctly sized detection cards within the height cap");
+      var signals=(GazelyCard)body.GetControlFromPosition(0,1);
+      var status=(Label)type.GetField("status",flags).GetValue(mini);
+      var meter=(AudioLevelMeter)type.GetField("meter",flags).GetValue(mini);
+      var listen=(Button)type.GetField("listen",flags).GetValue(mini);
+      if(status.Height<20 || meter.Width<180 || meter.Height<30 || !listen.Visible || listen.Right>signals.ClientSize.Width)throw new Exception("Mini listening status, audio meter and Listen button must fit their signal row without clipping");
+     }
+     using(Bitmap image=new Bitmap(mini.Width,mini.Height)){mini.DrawToBitmap(image,new Rectangle(Point.Empty,mini.Size));image.Save(Path.Combine(args[0],"overlay-"+state+".png"),System.Drawing.Imaging.ImageFormat.Png);}
+    }
+    Console.WriteLine("PASS: Mini visual hierarchy, scripture/version preview and three sizes.");
+    type.GetMethod("Shutdown").Invoke(mini,null);
+    Console.WriteLine("PASS: Mini test window disposed cleanly.");
+   }
+   return 0;
+  }
  }
 }
 '@
@@ -629,7 +701,7 @@ foreach($name in @('System','System.Core','System.Drawing','System.Windows.Forms
 $exe=Join-Path $PSScriptRoot ('InterfaceTest-'+[guid]::NewGuid().ToString('N')+'.exe')
 try {
  Add-Type -TypeDefinition $source -ReferencedAssemblies $refs -OutputAssembly $exe -OutputType ConsoleApplication
- & $exe $output $Width $Height ([bool]$Light).ToString() ([bool]$Pronunciation).ToString()
+ & $exe $output $Width $Height ([bool]$Light).ToString() ([bool]$Pronunciation).ToString() ([bool]$MiniOnly).ToString()
  if($LASTEXITCODE -ne 0){throw "Interface test failed: $LASTEXITCODE"}
 } finally { if(Test-Path -LiteralPath $exe){Remove-Item -LiteralPath $exe} }
 

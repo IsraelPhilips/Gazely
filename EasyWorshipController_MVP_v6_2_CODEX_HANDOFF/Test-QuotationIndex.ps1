@@ -8,13 +8,19 @@ Add-Type -TypeDefinition $core
 $clock = [Diagnostics.Stopwatch]::StartNew()
 $index = New-Object ScriptureQuoteIndex (Join-Path $PSScriptRoot 'corpus/kjv.tsv')
 $strong='People who wait on the Lord will get fresh strength and rise up like eagles'
-if(![SemanticEvidencePolicy]::Qualified($strong,7.8) -or
-   [SemanticEvidencePolicy]::Qualified($strong,3.0) -or
-   [SemanticEvidencePolicy]::Qualified('pray father we thank you',7.8)){
+if(![SemanticEvidencePolicy]::Qualified($strong,0.70,7.8) -or
+   [SemanticEvidencePolicy]::Qualified($strong,0.70,3.0) -or
+   [SemanticEvidencePolicy]::Qualified('pray father we thank you',0.70,7.8)){
     throw 'Semantic evidence gate accepted weak or rejected supported wording'
 }
 $reported='and all these other things shall be added onto you'
-if(![SemanticEvidencePolicy]::Qualified($reported,7.65)) {throw 'Reported split quotation was suppressed'}
+if(![SemanticEvidencePolicy]::Qualified($reported,0.70,7.65)) {throw 'Reported split quotation was suppressed'}
+foreach($short in @('The Lord is my shepherd','Go ye into all the world','but this book of law','the thief cometh not')){
+ if(![SemanticEvidencePolicy]::Qualified($short,0.68,5.8)){throw "Distinctive short scripture fragment was suppressed: $short"}
+}
+if([SemanticEvidencePolicy]::Qualified('The Lord is my shepherd',0.58,7.0) -or
+   [SemanticEvidencePolicy]::Qualified('The Lord is my shepherd',0.68,5.2) -or
+   [SemanticEvidencePolicy]::Qualified('pray with me',0.80,8.0)) {throw 'Short semantic gate accepted weak or underspecified evidence'}
 $loadMs = $clock.ElapsedMilliseconds
 $speechParser=New-Object ScriptureDetector
 $announced=$speechParser.Feed('in Genesis chapter 49 verses 3 and verse 4')
@@ -97,6 +103,16 @@ $found=@($index.FindAll($burst) | ForEach-Object ReferenceText)
 foreach($expected in @('Genesis 49:4','Matthew 6:33','Psalms 119:105')){if($expected -notin $found){throw "Multi-quote burst lost $expected"}}
 if(@($index.FindAll('Please turn up the microphone and fix the projector before Tuesday')).Count){throw 'Ordinary speech produced quotation candidates'}
 Write-Output 'PASS: multiple quotations in one burst retained; negative speech abstains.'
+$longSpeech=((1..50 | ForEach-Object { 'ordinary speech continues' }) -join ' ')+' The Lord is my shepherd'
+$balanced=[ScriptureQuoteIndex]::SemanticSearchPhrases($longSpeech,2,$false)
+$latest=[ScriptureQuoteIndex]::SemanticSearchPhrases($longSpeech,1,$true)
+if($balanced.Count -ne 2 -or $balanced[1] -notmatch 'The Lord is my shepherd' -or $latest.Count -ne 1 -or $latest[0] -notmatch 'The Lord is my shepherd'){
+ throw 'Semantic search phrase selection did not retain the recent end of a long transcript'
+}
+Write-Output 'PASS: bounded semantic lookup includes the latest wording in long transcripts and partials.'
+$shortCases=@(@('The Lord is my shepherd','Psalms 23:1'),@('go ye into all the world','Mark 16:15'),@('the thief cometh not','John 10:10'),@('but this book of law','Deuteronomy 31:26'))
+foreach($case in $shortCases){$refs=@($index.FindAll($case[0]) | ForEach-Object ReferenceText);if($case[1] -notin $refs){throw "Short scripture fragment '$($case[0])' did not surface $($case[1]): $($refs -join ', ')"}}
+Write-Output 'PASS: distinctive 4–6 word scripture fragments surface their canonical candidates.'
 $ten=@($cases[0..7] | ForEach-Object {$_[0]})+@('I can do all things through Christ which strengtheneth me','For God so loved the world that he gave his only begotten Son')
 $tenFound=@($index.FindAll(($ten -join '. ')) | ForEach-Object ReferenceText)
 foreach($expected in (@($cases[0..7] | ForEach-Object {$_[1]})+@('Philippians 4:13','John 3:16'))){if($expected -notin $tenFound){throw "Ten-quote burst lost $expected"}}
@@ -112,6 +128,14 @@ Write-Output 'PASS: parallel Micah/Isaiah wording retained for review without ch
 $parser=New-Object ScriptureDetector
 $mentioned=@($parser.FindMentionedReferences('Psalm 23 verse 1 and first Corinthians chapter 13 verse 4 and John 3 verse 16') | ForEach-Object ReferenceText)
 foreach($expected in @('Psalms 23:1','1 Corinthians 13:4','John 3:16')){if($expected -notin $mentioned){throw "Multi-reference call lost $expected"}}
+$chronological=@($parser.FindMentionedReferences('Daniel chapter 3 verse 18, Ezekiel chapter 2 verse 2, Matthew chapter 16 verse 19, Luke chapter 11 verse 52') | ForEach-Object ReferenceText)
+foreach($expected in @('Daniel 3:18','Ezekiel 2:2','Matthew 16:19','Luke 11:52')){if($expected -notin $chronological){throw "Chronological reference call lost $expected"}}
+$noisy='Those who know their God they shall be strong and do exploits; Hebrews chapter eleven and verse thirty two, it said and what shall I say more for time to turn of Gideon and Barak; after Daniel and the king bowed down and worshipped Daniel, Daniel chapter two and verse forty six'
+$spoken=@($parser.FindMentionedReferences($noisy))
+$hebrews=$spoken | Where-Object ReferenceText -eq 'Hebrews 11:32' | Select-Object -First 1
+if(!$hebrews){throw 'Noisy long transcript did not preserve its explicit Hebrews 11:32 anchor'}
+$provisional=New-Object ActiveReferenceState;$provisional.Preview($hebrews)
+if($provisional.Current.ReferenceText -ne 'Hebrews 11:32' -or [SpeechPresentationPolicy]::CanAutomate($provisional.Current)){throw 'A partial explicit reference must be visible as review-only, never automatic'}
 Write-Output 'PASS: multiple explicit references preserve spoken book aliases and numbered books.'
 Write-Output ("PASS: {0} quotation cases; {1} verses; load {2} ms; max lookup {3:N1} ms" -f $cases.Count,$index.Count,$loadMs,($times|Measure-Object -Maximum).Maximum)
 if ($TranscriptCsv) {

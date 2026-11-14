@@ -36,6 +36,37 @@ ProPresenter, etc.; integrations do not become separate sub-brands.
 - Keep presentation software intact: no internal database writes, binary patches,
   injection or changes to its installation/configuration to make an adapter work.
 
+## Operator autonomy levels (approved 14 November 2026)
+
+Autonomy is an explicit, operator-chosen setting with three named levels, not a
+confidence percentage. A numeric slider is rejected because the available scores
+(cosine similarity, reranker logit, parser confidence) are different scales and
+none is a calibrated probability; a percentage could not be built, tested or
+explained honestly.
+
+| Level | Gazely does | Operator does |
+|---|---|---|
+| Observe | detects and shows only | everything |
+| Assist | fills the target when Present is clicked | approves every send |
+| Auto | pre-types as heard; sends Enter on a complete explicit reference | supervises, may override |
+
+At every level: ambiguity abstains rather than guessing, and manual action, Stop
+and release outrank the machine. Each kind of evidence keeps its own rule; a
+level is not a general lowering of certainty. The one deliberate exception is
+Auto: a complete spoken book+chapter+verse is presented because the evidence
+kind is explicit, not because a score cleared a threshold. Quotes remain
+preview-only and are promoted only on a clear operator-directed request. A fourth
+"Full Auto" level that resolves ambiguity by best guess is deliberately not
+offered: guessing is the failure mode this product exists to avoid.
+
+## Scripture plan
+
+Gazely keeps the ordered set of scriptures announced in a sermon section and
+resolves ordinal references ("the next one I called in Psalms", "the final
+scripture") against it. This is deterministic resolution over a candidate set
+Gazely itself built, not model inference. The plan is visible to the operator and
+expires at an explicit boundary rather than a silent timeout.
+
 ## Independent extension points
 
 Capabilities and adapters evolve independently.

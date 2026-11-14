@@ -27,11 +27,13 @@ Nemotron's `nemotron_worker.py` uses four CPU threads, right-context 6 (560 ms),
 and 700 ms endpointing. Its local server binds only 127.0.0.1 with a random session
 token; it never calls a hosted ASR service. A Windows job object cleans up the
 server when the worker exits or is killed. EOF waits for native commit confirmation.
-Ordered WebSocket ping/pong acknowledgements also work during silence, unlike text
-events. Diagnostics report received/acknowledged samples, bounded queue occupancy
-and acknowledgement roundtrip. The latter includes queuing/transport/decoding;
-it is not pure model compute time or latency from the end of a spoken reference.
-The runtime can still buffer its normal lookahead after acknowledging a packet.
+Ordered WebSocket ping/pong echoes also work during silence, unlike text events.
+Gazely uses the echoed sample count for existing flow control. It confirms that
+the peer echoed the ping payload; the native implementation is not available to
+verify that it means inference completed. Diagnostics report sent and echoed
+samples, bounded queue occupancy, dropped audio and ping roundtrip. The roundtrip
+includes queuing/transport/decoding; it is not pure model compute time or latency
+from the end of a spoken reference.
 
 The C ABI in v0.2.0 omits configurable CPU threads; the initial bridge using its
 default thread policy overran in a paced replay. The WebSocket route passed two
@@ -65,6 +67,9 @@ and persists namespaced preferences through WorkspacePreferences. Window APIs
 provide non-activation, bounds/anchoring and minimize detection. The full form
 stays alive while hidden; a tray shortcut restores it. See the handoff for the
 operator-monitor constraint, output-capture limitations and regression evidence.
+The refreshed surfaces use the shared GazelyTheme/GazelyCard controls; Mini also
+uses a separate translation badge and scripture-text preview. Its view remains
+presentation-only and sends actions through the existing MainForm methods.
 
 Gazely is a Windows desktop application with optional local speech and search processes.
 There is no cloud inference dependency, generative chatbot,
@@ -175,6 +180,15 @@ system is deliberately migrated.
 `OnAudioData` routes bytes either to `UtteranceSegmenter` for Whisper or through
 `BlockingAudioStream` to `LiveSpeechRecognizer` for Windows Speech.
 
+Nemotron and Parakeet use the same `StreamingSpeechEngine` transport. If the
+selected streaming worker fails after listening begins, Gazely disposes that
+worker, starts the next tier (Nemotron → Parakeet → Whisper), and keeps the audio
+capture session running. A 20-second in-memory PCM ring supplies up to 16 seconds
+to the replacement engine; results wholly inside replayed audio are discarded,
+and engine epochs reject callbacks queued by an older worker. If a tier cannot
+start, Gazely advances again; if Whisper also fails, listening stops with an
+error. This is local recovery, not a transparent reconnection to Nemotron.
+
 ### The actual speech models
 
 | UI profile | Model resolved by code | Model file available on this development machine | Approximate file size, decimal MB |
@@ -182,6 +196,15 @@ system is deliberately migrated.
 | Fastest | Whisper `tiny.en` | `ggml-tiny.en.bin` | 77.7 |
 | Balanced | Whisper `base.en` | `ggml-base.en.bin` | 148.0 |
 | More accurate | Whisper `small.en` | `ggml-small.en-q5_1.bin` fallback | 190.1 |
+
+Parakeet Realtime EOU 120M Q8_0 is the streaming fallback after Nemotron. The
+model is 176,001,472 bytes; the Windows CPU shared library archive is 1,169,291
+bytes (the installed DLL is about 3.3 MB). The setup package pins both hashes and
+installs a local C API worker. It ran the existing 102-second replay through the
+actual worker protocol in 22.98 seconds on this development PC. That was a
+runtime smoke test, not a transcript-quality score or live-service validation.
+Parakeet was selectable as a primary engine as well; the model has not yet been
+evaluated against held-out church audio.
 
 The `small.en` resolver prefers `ggml-small.en.bin` if installed, otherwise accepts
 the compact Q5_1 file above. The setup script's `small.en` download and the existing
@@ -376,9 +399,14 @@ comparable calibrated probabilities.
 
 ### Context and result merging
 
-Current candidate quality gate: review-only semantic candidates need at least
-seven words of source evidence and a MiniLM reranker score of 4.5 or higher;
-each phrase keeps at most three qualified alternatives. A completed 30-minute
+Current candidate quality gate: semantic phrases of seven or more words need a
+MiniLM reranker score of 4.5 or higher. Four-to-six-word phrases use a stricter
+review-only path: cosine >= .62, reranker >= 5.5 and at least two informative
+words after stop-word removal. Distinctive 4–8 word lexical snippets may also
+match by exact token sequence, capped by the existing ranked shortlist. Search
+is limited to two transcript phrases plus one conditional context query, and
+queued jobs are coalesced to the newest interpretation. Each semantic query
+keeps at most three alternatives. A completed 30-minute
 paced replay reduced paraphrase rows from 240 to 32 while preserving its 10
 explicit and 15 lexical quotation rows. This does not establish real-sermon
 precision or authorize automatic paraphrase output.
@@ -461,8 +489,10 @@ workers, and uses a one-minute retry cooldown while lexical search remains avail
 WinForms controls belong to their UI thread. Worker callbacks must use `BeginInvoke`
 before changing them. Audio inference runs on a thread-pool worker with a bounded
 queue. Quotation jobs use a separate serial queue so the semantic subprocess has
-one request/response exchange at a time. The quotation queue is not equivalently
-bounded; sustained throughput and long-service memory remain engineering risks.
+one request/response exchange at a time. Pending work is coalesced to the newest
+transcript revision, and a running job stops before starting another semantic
+query when it becomes stale. An in-flight model query itself is not cancellable;
+its bounded query timeout still applies.
 
 Three identifiers matter when debugging stale results:
 
@@ -537,6 +567,11 @@ and recheck after EasyWorship profile or catalogue changes. Saving returns to
 Live workspace. A valid map does not prove the selected library translation;
 the KJV-first operating assumption is deliberate for this release. Direct
 EasyWorship selection changes cannot currently be detected reliably.
+
+Startup uses the persisted `onboarding.shown` marker to send returning users to
+Live workspace. If that marker is missing but a non-empty valid Bible map is
+already loaded, Gazely repairs the marker and opens Live workspace instead of
+repeating setup. A fresh installation with an empty map still gets the guide.
 
 The adapter returns `SentUnverified`, not `LiveVerified`: successfully issuing the
 operation is not proof of the actual audience screen. Stop/disable can invalidate
@@ -627,7 +662,13 @@ tracked reports do not imply every referenced recording is available in a clone.
    do not treat `SentUnverified` as successful live verification.
 
 `scripture-diagnostics.log` and Diagnostics expose transcript/timing information.
-Logs may contain service speech; they remain local and ignored by Git.
+The file rotates through `.1` to `.4` backups at about 2 MB per file. Nemotron
+records correlated session IDs, connection/session events, native process output
+and exit status, socket exception details, audio/response counts, queue/drop
+counts, and five-second process CPU/working-set samples. `pong_echoed_samples`
+means the native peer echoed a WebSocket ping payload; it is not independently
+verified inference progress. Logs may contain service speech and native server
+output; they remain local and ignored by Git.
 
 ## 9. Current limits and a sensible internal development path
 
@@ -639,7 +680,8 @@ endpointing and EasyWorship. They are not complete product latency or memory tot
 
 Known risks include noisy ASR, repeated overlap, dropped audio under load, finite
 parser context, false semantic matches for ordinary anecdotes, one-verse retrieval
-units, score calibration, unbounded quotation backlog, and limited live readback.
+units, score calibration, and limited live readback. Short-phrase thresholds have
+targeted fixtures but need held-out and real-sermon precision/recall measurements.
 The 90-second quote scope is distinct from the parser's shorter context lifetime;
 one timer does not solve the other. Search-index identity deliberately rejects stale
 corpus/model combinations: a changed embedding model requires rebuilding indexes,

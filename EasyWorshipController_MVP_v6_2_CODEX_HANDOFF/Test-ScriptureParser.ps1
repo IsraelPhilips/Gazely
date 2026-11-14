@@ -87,6 +87,15 @@ $moreCases = @(
     @('John 3:16 in King James Version', 'John 3:16', 'KJV')
 )
 foreach ($case in $moreCases) { Assert-Reference (New-Object ScriptureDetector) $case[0] $case[1] $case[2] }
+$lookPhrase='the key of knowledge look eleven fifty two you will not enter in and those who want to enter'
+$lookDetector=New-Object ScriptureDetector
+$lookCandidate=$lookDetector.Suggest($lookPhrase)
+if($null -eq $lookCandidate -or $lookCandidate.ReferenceText -ne 'Luke 11:52' -or -not $lookCandidate.RequiresReview -or $lookCandidate.EvidenceKind -ne 'phonetic-book') {
+    throw "Embedded phonetic Luke reference was not retained for review: $(if($lookCandidate){$lookCandidate.ReferenceText}else{'no candidate'})"
+}
+$lookMentions=$lookDetector.FindMentionedReferences($lookPhrase)
+if(-not ($lookMentions | Where-Object {$_.ReferenceText -eq 'Luke 11:52' -and $_.RequiresReview})) { throw 'Embedded phonetic Luke reference was not added to detections for review' }
+$count++
 $detector = New-Object ScriptureDetector
 Assert-Reference $detector 'Genesis' ''
 Assert-Reference $detector 'one one' 'Genesis 1:1'
@@ -280,7 +289,17 @@ $detector.Reset()
 Assert-Reference $detector 'Leviticus chapter six verse thirteen' 'Leviticus 6:13'
 Assert-Reference $detector 'Go to VES 11' 'Leviticus 6:11'
 Assert-Reference $detector 'Okay verse 12' 'Leviticus 6:12'
+$detector.Reset()
+Assert-Reference $detector 'Mark chapter 2' ''
+Assert-Reference $detector 'I want to show you guys something here' ''
+$continuation=$detector.Feed("Let's start from verse five")
+if($null -eq $continuation -or $continuation.ReferenceText -ne 'Mark 2:5' -or $continuation.EvidenceKind -ne 'contextual' -or !$continuation.RequiresReview){throw 'Conversational verse continuation did not retain the Mark 2 anchor for review.'}
+$correction=$detector.Feed('give me six instead')
+if($null -eq $correction -or $correction.ReferenceText -ne 'Mark 2:6' -or $correction.EvidenceKind -ne 'correction' -or !$correction.RequiresReview){throw 'Conversational verse correction did not replace Mark 2:5 with Mark 2:6 for review.'}
+$correction=$detector.Feed("Let's start from verse five, no, give me six instead")
+if($null -eq $correction -or $correction.ReferenceText -ne 'Mark 2:6' -or $correction.EvidenceKind -ne 'correction'){throw 'A correction later in the same utterance did not override its earlier verse cue.'}
 Write-Host 'PASS: repeated verse number cannot invent a missing chapter; VES uses existing chapter only.'
+Write-Host 'PASS: chapter anchor survives intervening speech; conversational verse selection and correction resolve within that chapter.'
 $detector.Reset()
 Assert-Reference $detector "Let's see what Leviticus is. 6th verse 13." 'Leviticus 6:13'
 $detector.Reset()

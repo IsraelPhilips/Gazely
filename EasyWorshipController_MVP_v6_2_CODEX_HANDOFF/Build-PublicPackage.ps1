@@ -18,7 +18,7 @@ if($cloudMarker.candidate_sha256 -ne $candidateHash) { throw 'Candidate does not
 if (Test-Path -LiteralPath $destination) { throw "Package directory already exists: $destination" }
 if (-not $NoArchive -and (Test-Path -LiteralPath $archive)) { throw "Package archive already exists: $archive" }
 
-foreach ($engine in @('whisper','nemotron')) {
+foreach ($engine in @('whisper','nemotron','parakeet')) {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $source 'Install-SpeechPackage.ps1') -Engine $engine -Offline -Status | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "The installed $engine package failed offline verification." }
 }
@@ -37,13 +37,15 @@ $files = @(
     'corpus/provenance.json',
     'corpus/web-provenance.json',
     'speech-runtime/nemotron_worker.py',
+    'speech-runtime/parakeet_worker.py',
     'speech-runtime/packages.json'
 )
 $directories = @(
     'models/scripture-search',
     'search-runtime',
     'speech-packages/whisper-base-en-v1',
-    'speech-packages/nemotron-q8-v1'
+    'speech-packages/nemotron-q8-v1',
+    'speech-packages/parakeet-eou-120m-v1'
 )
 foreach ($relative in $files + $directories) {
     if (-not (Test-Path -LiteralPath (Join-Path $source $relative))) { throw "Required package input is missing: $relative" }
@@ -66,7 +68,7 @@ $readme = @'
 Gazely Windows MVP — initial public build
 
 1. Extract the entire archive into a folder where your Windows account can save files.
-2. Open Gazely.exe. No sign-in or internet connection is needed. Everything needed for the two included speech engines is bundled; no model download is needed.
+2. Open Gazely.exe. No sign-in or internet connection is needed. Everything needed for the three included speech engines is bundled; no model download is needed. If streaming recognition fails, Gazely moves from Nemotron to Parakeet, then Whisper, while preserving recent captured audio.
 3. Follow the first-run guide. Bible versions proposes an order from read-only local Bible headers. Compare every abbreviation with EasyWorship > Scriptures, including the last row; leave out "More Available...". Edit any mismatch, then confirm and save. If local discovery is unavailable, enter the visible codes one per line or separated by commas.
 4. Open EasyWorship 7 and use manual Prepare/Present while checking its live output. Gazely does not treat a live slide as proof of the currently selected Scriptures-library version.
 
