@@ -47,7 +47,7 @@ namespace EasyWorshipControllerMvp
         public bool IconOnly;
         private bool hovering;
         public GazelyButton(){SetStyle(ControlStyles.UserPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.AllPaintingInWmPaint,true);}
-        public override Size GetPreferredSize(Size proposedSize){Size text=TextRenderer.MeasureText(Text,Font);return new Size(IconOnly?36:text.Width+22+(IconName==null?0:22),Math.Max(34,text.Height+12));}
+        public override Size GetPreferredSize(Size proposedSize){Size text=TextRenderer.MeasureText(Text,Font);return new Size(IconOnly?32:text.Width+16+(IconName==null?0:18),Math.Max(30,text.Height+10));}
         protected override void OnMouseEnter(EventArgs e){hovering=true;Invalidate();base.OnMouseEnter(e);}
         protected override void OnMouseLeave(EventArgs e){hovering=false;Invalidate();base.OnMouseLeave(e);}
         protected override void OnPaint(PaintEventArgs e)
@@ -58,11 +58,11 @@ namespace EasyWorshipControllerMvp
             using(var b=new SolidBrush(Enabled?(hovering && (Tag as string)!="primary"?GazelyTheme.Soft:BackColor):GazelyTheme.Surface))
             using(var pen=new Pen(Focused?GazelyTheme.Accent:(Tag as string)=="quiet"?BackColor:GazelyTheme.Line,Focused?2:1))
             {e.Graphics.FillPath(b,p);e.Graphics.DrawPath(pen,p);}
-            Rectangle caption=ClientRectangle;caption.Inflate(-10,-2);
+            Rectangle caption=ClientRectangle;caption.Inflate(-8,-2);
             Color ink=Enabled?ForeColor:GazelyTheme.Muted;
             if(IconName!=null)
             {
-                float x=IconOnly?Width/2f-7:12,y=Height/2f-7;
+                float x=IconOnly?Width/2f-7:8,y=Height/2f-7;
                 using(Pen pen=new Pen(ink,1.6f))using(Brush brush=new SolidBrush(ink))
                 {
                     if(IconName=="play")e.Graphics.FillPolygon(brush,new PointF[]{new PointF(x+3,y),new PointF(x+14,y+7),new PointF(x+3,y+14)});
@@ -75,9 +75,21 @@ namespace EasyWorshipControllerMvp
                     else if(IconName=="prepare") {e.Graphics.DrawRectangle(pen,x,y+3,14,11);e.Graphics.DrawLine(pen,x+4,y,x+10,y);e.Graphics.DrawLine(pen,x+4,y+7,x+10,y+7);}
                     else if(IconName=="edit") {e.Graphics.DrawLine(pen,x+2,y+12,x+12,y+2);e.Graphics.DrawLine(pen,x+1,y+14,x+6,y+13);e.Graphics.DrawLine(pen,x+9,y+1,x+13,y+5);}
                     else if(IconName=="refresh") {e.Graphics.DrawArc(pen,x+1,y+1,12,12,35,285);e.Graphics.DrawLine(pen,x+13,y+1,x+13,y+6);e.Graphics.DrawLine(pen,x+13,y+6,x+8,y+5);}
+                    // Navigation glyphs. Simple 14x14 line work so they read at
+                    // 9.5pt and stay legible in both themes.
+                    else if(IconName=="nav-live") {e.Graphics.DrawEllipse(pen,x+2,y+2,10,10);e.Graphics.FillEllipse(brush,x+5,y+5,4,4);}
+                    else if(IconName=="nav-speech") {e.Graphics.DrawLine(pen,x+7,y+1,x+7,y+8);e.Graphics.DrawArc(pen,x+2,y+4,10,8,180,180);e.Graphics.DrawLine(pen,x+7,y+12,x+7,y+14);e.Graphics.DrawLine(pen,x+4,y+14,x+10,y+14);}
+                    else if(IconName=="nav-integrations") {e.Graphics.DrawRectangle(pen,x,y+3,6,4);e.Graphics.DrawRectangle(pen,x+8,y+7,6,4);e.Graphics.DrawLine(pen,x+3,y+7,x+3,y+9);e.Graphics.DrawLine(pen,x+3,y+9,x+11,y+9);e.Graphics.DrawLine(pen,x+11,y+9,x+11,y+7);}
+                    else if(IconName=="nav-bibles") {e.Graphics.DrawRectangle(pen,x+1,y+1,12,12);e.Graphics.DrawLine(pen,x+7,y+1,x+7,y+13);e.Graphics.DrawLine(pen,x+3,y+4,x+5,y+4);e.Graphics.DrawLine(pen,x+9,y+4,x+11,y+4);}
+                    else if(IconName=="nav-howto") {e.Graphics.DrawEllipse(pen,x+1,y+1,12,12);e.Graphics.DrawLine(pen,x+7,y+10,x+7,y+11);e.Graphics.DrawArc(pen,x+4,y+3,6,6,180,200);}
+                    else if(IconName=="nav-history") {e.Graphics.DrawArc(pen,x+1,y+1,12,12,40,290);e.Graphics.DrawLine(pen,x+7,y+4,x+7,y+8);e.Graphics.DrawLine(pen,x+7,y+8,x+10,y+9);}
+                    else if(IconName=="nav-diagnostics") {e.Graphics.DrawLines(pen,new PointF[]{new PointF(x,y+8),new PointF(x+3,y+8),new PointF(x+5,y+3),new PointF(x+8,y+12),new PointF(x+10,y+8),new PointF(x+14,y+8)});}
+                    else if(IconName=="nav-account") {e.Graphics.DrawEllipse(pen,x+4,y+1,6,6);e.Graphics.DrawArc(pen,x+1,y+12,12,10,180,180);}
+                    else if(IconName=="theme") {e.Graphics.DrawArc(pen,x+1,y+1,12,12,60,240);e.Graphics.DrawLine(pen,x+8,y+2,x+4,y+7);e.Graphics.DrawLine(pen,x+4,y+7,x+8,y+12);}
+                    else if(IconName=="mini") {e.Graphics.DrawRectangle(pen,x+1,y+3,12,8);e.Graphics.DrawLine(pen,x+1,y+6,x+13,y+6);}
                     else {e.Graphics.DrawEllipse(pen,x,y,14,14);e.Graphics.DrawLine(pen,x+7,y+6,x+7,y+11);e.Graphics.FillEllipse(brush,x+6,y+3,2,2);}
                 }
-                caption.X+=22;caption.Width-=22;
+                caption.X+=18;caption.Width-=18;
             }
             if(!IconOnly)TextRenderer.DrawText(e.Graphics,Text,Font,caption,ink,(TextAlign==ContentAlignment.MiddleLeft?TextFormatFlags.Left:TextFormatFlags.HorizontalCenter)|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.SingleLine);
         }
@@ -254,10 +266,14 @@ namespace EasyWorshipControllerMvp
             private readonly TextBox transcript;
             private readonly AudioLevelMeter meter=new AudioLevelMeter();
             private readonly Button listen,preview,live;
-            private readonly CheckBox autoPreview=new GazelyToggle(),autoLive=new GazelyToggle();
+            private ComboBox miniAutonomy;
+            private Label miniAutonomyHint;
             private readonly BufferedDetectionPanel detections=new BufferedDetectionPanel();
             private readonly System.Collections.Generic.List<ListViewItem> renderedDetectionItems=new System.Collections.Generic.List<ListViewItem>();
-            private readonly FlowLayoutPanel alternatives=new FlowLayoutPanel{Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false,AutoScroll=true};
+            // No AutoScroll and no overflow chrome: the passage card already sits
+            // inside Mini's own layout, and an inner scrollbar competed with the
+            // detections list and read as a rendering fault.
+            private readonly FlowLayoutPanel alternatives=new FlowLayoutPanel{Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false,AutoScroll=false,AutoSize=false};
             private readonly GazelyCard passage=new GazelyCard{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,Margin=Padding.Empty};
             private string alternativesKey="";
             private string monitorName="",targetProcess="",targetTitle="",corner="Free",mode="Compact",signature="";
@@ -287,12 +303,14 @@ namespace EasyWorshipControllerMvp
                 AddButton(heading,"□",delegate{SetMode(mode=="Expanded"?"Compact":"Expanded");},"Compact / expanded");
                 Button menu=AddButton(heading,"⋯",delegate{},"Overlay options");menu.Click+=delegate{ShowOptions(menu);};
                 AddButton(heading,"↗",ReturnToWorkspace,"Open full workspace and settings");body.Controls.Add(heading,0,0);
-                var signals=new GazelyCard{Dock=DockStyle.Fill,ColumnCount=3,RowCount=1,Padding=new Padding(8,0,7,0),Margin=new Padding(0,0,0,3),Tag="soft"};signals.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,145));signals.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));signals.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,98));
+                var signals=new GazelyCard{Dock=DockStyle.Fill,ColumnCount=3,RowCount=1,Padding=new Padding(10,0,8,0),Margin=new Padding(0,0,0,4),Tag="soft"};signals.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,132));signals.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));signals.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,94));
                 status=CopyLabel("Stopped",10,true);status.Dock=DockStyle.Fill;status.TextAlign=ContentAlignment.MiddleLeft;status.Margin=new Padding(0);signals.Controls.Add(status,0,0);meter.Dock=DockStyle.Fill;meter.Margin=new Padding(5,1,5,1);signals.Controls.Add(meter,1,0);
                 listen=AddButton(signals,"Listen",delegate{if(host.audioListening)host.StopListening();else host.StartListening();},"Start / stop listening");listen.Height=34;listen.Width=92;listen.Margin=new Padding(2,1,0,1);signals.SetCellPosition(listen,new TableLayoutPanelCellPosition(2,0));body.Controls.Add(signals,0,1);
-                passage.ColumnCount=2;passage.RowCount=3;passage.Tag="surface";passage.AccentEdge=true;passage.Padding=new Padding(12,10,12,9);passage.Margin=new Padding(0,2,0,5);
+                passage.ColumnCount=2;passage.RowCount=3;passage.Tag="surface";passage.AccentEdge=true;passage.Padding=new Padding(12,10,12,10);passage.Margin=new Padding(0,2,0,6);
                 passage.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));passage.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-                passage.RowStyles.Add(new RowStyle(SizeType.Absolute,34));passage.RowStyles.Add(new RowStyle(SizeType.Absolute,82));passage.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+                passage.RowStyles.Add(new RowStyle(SizeType.Absolute,32));
+                passage.RowStyles.Add(new RowStyle(SizeType.Absolute,58));
+                passage.RowStyles.Add(new RowStyle(SizeType.Percent,100));
                 reference=CopyLabel("Waiting for a reference",17,true);reference.Name="MiniSelectedReference";reference.AutoSize=false;reference.Dock=DockStyle.Fill;reference.AutoEllipsis=true;reference.TextAlign=ContentAlignment.MiddleLeft;reference.Margin=new Padding(0,0,6,2);
                 versionBadge=new GazelyBadge{Text="KJV",Name="MiniVersionBadge",AutoSize=false,Width=52,Height=26,Font=new Font("Segoe UI",9,FontStyle.Bold),TextAlign=ContentAlignment.MiddleCenter,Margin=new Padding(2,4,0,4),Padding=new Padding(4,0,4,0),Tag="muted"};
                 versePreview=CopyLabel("Say a reference to preview its words.",10,false);versePreview.Name="MiniVersePreview";versePreview.Font=new Font("Georgia",10.5f);versePreview.AutoSize=false;versePreview.Dock=DockStyle.Fill;versePreview.AutoEllipsis=true;versePreview.AccessibleName="Selected scripture text preview";versePreview.Margin=new Padding(0,1,0,3);
@@ -303,9 +321,26 @@ namespace EasyWorshipControllerMvp
                 live=AddButton(actions,"Present now",delegate{if(host.liveDetectedButton.Enabled)host.RunDetected(true);},"Present selected scripture now");live.Width=152;live.Height=38;((GazelyButton)live).IconName="play";live.Tag="primary";body.Controls.Add(actions,0,4);
                 source=CopyLabel("",9,false);source.AutoSize=false;source.AutoEllipsis=true;source.Dock=DockStyle.Fill;body.Controls.Add(source,0,5);
                 transcript=new TextBox{Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,BorderStyle=BorderStyle.None,Font=new Font("Segoe UI",9.5f),AccessibleName="Live hearing and recent transcript"};body.Controls.Add(transcript,0,6);
-                autoPreview.Text="Auto Preview";autoLive.Text="Auto Live";autoPreview.Size=new Size(170,32);autoLive.Size=new Size(150,32);
-                autoPreview.CheckedChanged+=delegate{if(!syncing && host.autoPreviewCheck.Enabled)host.autoPreviewCheck.Checked=autoPreview.Checked;};
-                autoLive.CheckedChanged+=delegate{if(!syncing && host.autoLiveCheck.Enabled)host.autoLiveCheck.Checked=autoLive.Checked;};body.Controls.Add(Row(autoPreview,autoLive),0,7);
+                // Mini carries the same single autonomy setting as the workspace.
+                // Two separate Auto toggles here contradicted the three-level
+                // control, read as unrelated switches, and truncated ("Auto live …").
+                var autonomyRow=new FlowLayoutPanel{Dock=DockStyle.Fill,Margin=Padding.Empty,WrapContents=false,AutoSize=false};
+                Label autonomyCaption=CopyLabel("Autonomy",9,false);autonomyCaption.Tag="muted";autonomyCaption.AutoSize=false;autonomyCaption.Width=68;autonomyCaption.Height=26;autonomyCaption.TextAlign=ContentAlignment.MiddleLeft;autonomyRow.Controls.Add(autonomyCaption);
+                miniAutonomy=new ComboBox{DropDownStyle=ComboBoxStyle.DropDownList,Width=104,Height=26,Margin=new Padding(0,0,8,0),AccessibleName="Autonomy level for Gazely"};
+                miniAutonomy.Items.AddRange(new object[]{"Observe","Assist","Auto"});autonomyRow.Controls.Add(miniAutonomy);
+                // No second label: Mini is compact, and repeating the chosen level
+                // next to the control that already shows it read as a duplicate.
+                // The description lives in the tooltip and the accessible name.
+                miniAutonomyHint=CopyLabel("",9,false);miniAutonomyHint.Tag="muted";miniAutonomyHint.AutoSize=false;miniAutonomyHint.Height=26;miniAutonomyHint.TextAlign=ContentAlignment.MiddleLeft;autonomyRow.Controls.Add(miniAutonomyHint);
+                autonomyRow.Resize+=delegate{miniAutonomyHint.Width=Math.Max(60,autonomyRow.ClientSize.Width-68-104-8);};
+                miniAutonomy.SelectedIndexChanged+=delegate{
+                    if(syncing||miniAutonomy.SelectedIndex<0)return;
+                    AutonomyLevel chosen=(AutonomyLevel)miniAutonomy.SelectedIndex;
+                    host.SetAutonomy(chosen);
+                    tips.SetToolTip(miniAutonomy,AutonomyPolicy.Description(chosen));
+                    miniAutonomy.AccessibleName="Autonomy level: "+AutonomyPolicy.Label(chosen)+". "+AutonomyPolicy.Description(chosen);
+                };
+                body.Controls.Add(autonomyRow,0,7);
                 var historyBar=Row();pageLabel=CopyLabel("Detections",10,true);pageLabel.Width=180;pageLabel.AutoSize=false;historyBar.Controls.Add(pageLabel);
                 AddButton(historyBar,"‹",delegate{page=Math.Max(0,page-1);RefreshDetections(true);},"Newer detections");
                 AddButton(historyBar,"›",delegate{page++;RefreshDetections(true);},"Older detections");
@@ -410,8 +445,12 @@ namespace EasyWorshipControllerMvp
                 source.Text="Input: "+host.audioDeviceCombo.Text;
                 string text=host.liveTranscript.Text;if(text.Length>2500)text=text.Substring(text.Length-2500);
                 if(transcript.Text!=text){transcript.Text=text;transcript.SelectionStart=transcript.TextLength;transcript.ScrollToCaret();}
-                syncing=true;autoPreview.Checked=host.autoPreviewCheck.Checked;autoLive.Checked=host.autoLiveCheck.Checked;
-                autoPreview.Enabled=host.autoPreviewCheck.Enabled;autoLive.Enabled=host.autoLiveCheck.Enabled;syncing=false;
+                syncing=true;
+                AutonomyLevel level=host.EffectiveAutonomy;
+                miniAutonomy.SelectedIndex=(int)level;miniAutonomy.Enabled=host.autoPreviewCheck.Enabled||host.autoLiveCheck.Enabled;
+                miniAutonomyHint.Text=string.Empty;
+                tips.SetToolTip(miniAutonomy,AutonomyPolicy.Description(level));
+                syncing=false;
                 output.Text=host.presentationStatus.Text;
                 if(lastDark!=GazelyTheme.Dark){lastDark=GazelyTheme.Dark;GazelyTheme.Apply(this);}
                 if(mode=="Expanded")RefreshDetections(false);
@@ -455,7 +494,7 @@ namespace EasyWorshipControllerMvp
                 if(page==0 && renderedDetectionPage==0 && scroll>0)
                 {
                     int insertedAtTop=0;while(insertedAtTop<Math.Min(pageSize,rows.Count) && !renderedDetectionItems.Contains(rows[insertedAtTop]))insertedAtTop++;
-                    scroll+=insertedAtTop*(mode=="Expanded"?83:102);
+                    scroll+=insertedAtTop*(mode=="Expanded"?95:105);
                 }
                 detections.BeginUpdate();detections.SuspendLayout();
                 try{
@@ -466,10 +505,27 @@ namespace EasyWorshipControllerMvp
                     {
                         renderedDetectionItems.Add(rows[i]);
                         ListViewItem original=rows[i],snapshot=(ListViewItem)original.Clone();snapshot.Tag=((ScriptureDetection)original.Tag).Snapshot();
-                        var d=(ScriptureDetection)snapshot.Tag;bool dense=mode=="Expanded";var card=new TableLayoutPanel{Width=Math.Max(280,detections.ClientSize.Width-24),Height=dense?80:94,ColumnCount=1,RowCount=3,Padding=new Padding(5,3,5,3),Margin=new Padding(0,1,0,2),Tag="surface"};
-                        card.RowStyles.Add(new RowStyle(SizeType.Absolute,dense?32:26));card.RowStyles.Add(new RowStyle(SizeType.Percent,100));card.RowStyles.Add(new RowStyle(SizeType.Absolute,dense?16:18));
-                        var rowBar=Row();Button select=AddButton(rowBar,snapshot.SubItems[1].Text,delegate{host.SelectHistoryReference(snapshot);},"Select this detection for review");select.Width=210;
-                        Button show=AddButton(rowBar,"▶",delegate{if(original.ListView!=host.suggestionHistory || original.SubItems[4].Text=="Dismissed" || !host.HistoryCanPresent(snapshot))return;host.SelectHistoryReference(snapshot);host.RunDetected(true);},"Show "+d.ReferenceText+" live");show.Tag="primary";show.Enabled=host.HistoryCanPresent(snapshot);card.Controls.Add(rowBar,0,0);
+                        var d=(ScriptureDetection)snapshot.Tag;bool dense=mode=="Expanded";
+                        // A card needs room for the reference row, one or two lines of
+                        // scripture, and the evidence line. The previous 80px clipped
+                        // the excerpt against the evidence row.
+                        int cardHeight=dense?94:104;
+                        var card=new TableLayoutPanel{Width=Math.Max(280,detections.ClientSize.Width-24),Height=cardHeight,ColumnCount=1,RowCount=3,Padding=new Padding(8,5,8,5),Margin=new Padding(0,2,0,3),Tag="surface"};
+                        card.RowStyles.Add(new RowStyle(SizeType.Absolute,32));
+                        card.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+                        card.RowStyles.Add(new RowStyle(SizeType.Absolute,16));
+                        // A two-column header: the reference takes the width, the play
+                        // button keeps its own fixed column. A flow row let the round
+                        // button drift over the scripture line beneath it.
+                        var rowBar=new TableLayoutPanel{Dock=DockStyle.Fill,Margin=Padding.Empty,ColumnCount=2,RowCount=1};
+                        rowBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+                        rowBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,38));
+                        Button select=AddButton(rowBar,snapshot.SubItems[1].Text,delegate{host.SelectHistoryReference(snapshot);},"Select this detection for review");
+                        select.Dock=DockStyle.Fill;select.Height=28;select.Margin=new Padding(0,0,6,0);
+                        Button show=AddButton(rowBar,"▶",delegate{if(original.ListView!=host.suggestionHistory || original.SubItems[4].Text=="Dismissed" || !host.HistoryCanPresent(snapshot))return;host.SelectHistoryReference(snapshot);host.RunDetected(true);},"Show "+d.ReferenceText+" live");
+                        show.Tag="primary";show.Enabled=host.HistoryCanPresent(snapshot);
+                        show.Dock=DockStyle.Fill;show.Width=38;show.Height=28;show.Margin=Padding.Empty;
+                        card.Controls.Add(rowBar,0,0);
                         string verse=host.quotationIndex==null?d.MatchedText:host.quotationIndex.GetVerseText(d.Book,d.Chapter,d.Verse,d.VerseEnd);
                         var excerpt=CopyLabel(string.IsNullOrEmpty(verse)?"Reference incomplete — select to review":"KJV · "+verse,9.5f,false);excerpt.Font=new Font("Georgia",9.5f);excerpt.AutoSize=false;excerpt.AutoEllipsis=true;excerpt.Dock=DockStyle.Fill;card.Controls.Add(excerpt,0,1);
                         var evidence=CopyLabel(snapshot.SubItems[2].Text+" match · "+snapshot.SubItems[4].Text,8.5f,false);evidence.Tag="muted";card.Controls.Add(evidence,0,2);detections.Controls.Add(card);GazelyTheme.Apply(card);
@@ -567,7 +623,14 @@ namespace EasyWorshipControllerMvp
                 if(data.TryGetValue("earlyResults",out value) && bool.TryParse(value,out flag))earlyResultsCheck.Checked=flag;
                 if(data.TryGetValue("autoPrepare",out value) && bool.TryParse(value,out flag))autoPreviewCheck.Checked=flag;
                 if(data.TryGetValue("autoLive",out value) && bool.TryParse(value,out flag))autoLiveCheck.Checked=flag;
-                if(autoLiveCheck.Checked)autoPreviewCheck.Checked=false;
+                // The autonomy level is derived from the two existing keys, so an
+                // existing installation restores without a migration. Auto keeps
+                // prepare on (quotes stay preview-only; the chapter-only hold is
+                // what keeps a verse-1 guess off screen), so live implies prepare.
+                ApplyAutonomy(
+                    autoLiveCheck.Checked ? AutonomyLevel.Auto
+                        : autoPreviewCheck.Checked ? AutonomyLevel.Assist : AutonomyLevel.Observe,
+                    false);
             }catch(Exception ex){AddLog("Could not restore workspace preferences: "+ex.Message);}
             finally{restoringPreferences=false;}
             GazelyTheme.Apply(this);
@@ -577,7 +640,13 @@ namespace EasyWorshipControllerMvp
         private ComboBox draftBook;
         private TextBox draftChapter,draftVerse;
         private Label draftStatus;
-        private bool operatorDraft,settingDraft;
+        // operatorDraft: an operator selection is being held (a picked quote, a
+        // history row, an applied draft). operatorTyping: the operator is actively
+        // in the reference fields right now. A complete spoken reference may
+        // replace the first, as agreed on 15 October, but must never overwrite the
+        // second: clobbering keystrokes under someone's fingers is not a trade the
+        // product should make.
+        private bool operatorDraft,settingDraft,operatorTyping;
         private string waitingSource=string.Empty;
         private DateTime waitingSince=DateTime.MinValue;
         private void TrackWaitingReference(string source)
@@ -595,7 +664,7 @@ namespace EasyWorshipControllerMvp
         private void EditDraft(object sender,EventArgs args)
         {
             if(settingDraft)return;
-            referenceRefinement.UpdateIntent(null,listeningSession);operatorDraft=true;RefreshPassageAlternatives();++interpretationRevision;lastDetection=null;
+            referenceRefinement.UpdateIntent(null,listeningSession);operatorDraft=true;operatorTyping=true;RefreshPassageAlternatives();++interpretationRevision;lastDetection=null;
             previewDetectedButton.Enabled=liveDetectedButton.Enabled=false;
             draftStatus.Text="Your edit is held. Choose Use, or Release scripture.";
         }
@@ -610,7 +679,7 @@ namespace EasyWorshipControllerMvp
             d.RequiresReview=true;d.EvidenceKind="operator";d.Reason="Reference entered by the operator";
             d.Translation=versionCombo.Text;d.TranslationExplicit=!string.IsNullOrWhiteSpace(d.Translation);
             d.Confidence=1;d.SourceText="Operator: "+draftBook.Text+" "+draftChapter.Text+":"+draftVerse.Text;
-            operatorDraft=false;historyEventKey="operator:"+DateTime.UtcNow.Ticks;ShowDetection(d);referenceRefinement.UpdateIntent(null,listeningSession);operatorDraft=true;RefreshPassageAlternatives();
+            operatorDraft=false;operatorTyping=false;historyEventKey="operator:"+DateTime.UtcNow.Ticks;ShowDetection(d);referenceRefinement.UpdateIntent(null,listeningSession);operatorDraft=true;RefreshPassageAlternatives();
             draftStatus.Text="Operator reference held • Release scripture to follow new suggestions.";
         }
         private Label workspacePresentationStatus;
@@ -692,7 +761,7 @@ namespace EasyWorshipControllerMvp
             string stamp=(anchor==null?"":ActiveReferenceText(anchor))+"|"+selected+"|"+operatorDraft+"|"+followingQuotation;
             foreach(ScriptureDetection quote in passageAlternatives)stamp+="|"+quote.ReferenceText;
             if(stamp==passageAlternativesStamp)return;passageAlternativesStamp=stamp;
-            int scroll=-passageAlternativesPanel.AutoScrollPosition.Y;
+            int scroll=0;
             passageAlternativesPanel.BeginUpdate();passageAlternativesPanel.SuspendLayout();
             try{
                 while(passageAlternativesPanel.Controls.Count>0)passageAlternativesPanel.Controls[0].Dispose();
@@ -749,7 +818,20 @@ namespace EasyWorshipControllerMvp
         private int candidatePage;
         private bool candidateDirty;
         private bool candidateMenuOpen;
-        private bool ShouldDeferCandidateRefresh(){return candidateMenuOpen || candidatePage>0;}
+        // A refresh must never move the row under the operator's click or caret.
+        // While they are browsing older pages, a menu is open, focus is inside the
+        // live list, or the pointer is over it, new results wait and an indicator
+        // shows instead of reordering the list beneath them.
+        private bool ShouldDeferCandidateRefresh()
+        {
+            if(candidateMenuOpen || candidatePage>0)return true;
+            FlowLayoutPanel list=recentHistory;
+            if(list==null || list.IsDisposed)return false;
+            if(list.ContainsFocus)return true;
+            try{if(list.RectangleToScreen(list.ClientRectangle).Contains(Cursor.Position))return true;}
+            catch{}
+            return false;
+        }
         private void ClearCandidatePanel()
         {
             candidateEpoch++;
@@ -876,25 +958,45 @@ namespace EasyWorshipControllerMvp
             listening.Padding=new Padding(0,9,0,0);header.Controls.Add(listening,1,0);
 
             TableLayoutPanel body=new TableLayoutPanel();body.Name="WorkspacePanes";body.Dock=DockStyle.Fill;body.Margin=Padding.Empty;layout.Controls.Add(body,0,1);
-            TableLayoutPanel scripture=Vertical(26,48,24,-100,34,0,24,44,36);scripture.Name="SelectedPassage";scripture.Tag="surface";scripture.Padding=new Padding(16);scripture.Margin=new Padding(7,0,0,0);
+            TableLayoutPanel scripture=Vertical(26,48,24,-100,34,0,24,44,46,28,26);scripture.Name="SelectedPassage";scripture.Tag="surface";scripture.Padding=new Padding(16);scripture.Margin=new Padding(7,0,0,0);
             ((GazelyCard)scripture).AccentEdge=true;
             Label suggested=CopyLabel("SELECTED PASSAGE",10,true);suggested.Tag="muted";Fill(suggested);scripture.Controls.Add(suggested,0,0);scripture.Controls.Add(detectedReferenceLabel,0,1);
             detectedReferenceLabel.Font=new Font("Segoe UI",23,FontStyle.Bold);detectedReferenceLabel.AutoEllipsis=true;
             scripture.Controls.Add(detectedConfidenceLabel,0,2);
-            Panel readingViewport=new Panel{Dock=DockStyle.Fill,AutoScroll=true,Margin=Padding.Empty};scripture.Controls.Add(readingViewport,0,3);
+            // No AutoScroll: passageBody is sized to the viewport, so a scrollbar
+            // would only ever be an empty strip beside the text.
+            Panel readingViewport=new Panel{Dock=DockStyle.Fill,AutoScroll=false,Margin=Padding.Empty};scripture.Controls.Add(readingViewport,0,3);
             passageBody=Vertical(0,-100);passageBody.Dock=DockStyle.None;readingViewport.Controls.Add(passageBody);
-            Action arrangeReading=delegate{int height=Math.Max(220,readingViewport.ClientSize.Height);passageBody.SetBounds(0,readingViewport.AutoScrollPosition.Y,Math.Max(0,readingViewport.ClientSize.Width-(height>readingViewport.ClientSize.Height?SystemInformation.VerticalScrollBarWidth:0)),height);};
+            // passageBody must never be taller than the viewport it lives in: the
+            // old Math.Max(220, ...) floor forced a 220px body into a shorter
+            // viewport, and the scripture text painted over the card's buttons.
+            Action arrangeReading=delegate{int height=Math.Max(40,readingViewport.ClientSize.Height);passageBody.SetBounds(0,readingViewport.AutoScrollPosition.Y,Math.Max(0,readingViewport.ClientSize.Width-(height>readingViewport.ClientSize.Height?SystemInformation.VerticalScrollBarWidth:0)),height);};
             readingViewport.Resize+=delegate{arrangeReading();};arrangeReading();
-            passageAlternativesPanel=new BufferedDetectionPanel{Name="PassageAlternatives",Dock=DockStyle.Fill,AutoScroll=true,WrapContents=false,FlowDirection=FlowDirection.TopDown,Margin=Padding.Empty};
+            // The row height is already capped to fit the alternatives, so an inner
+            // scrollbar was always an empty strip beside the list.
+            passageAlternativesPanel=new BufferedDetectionPanel{Name="PassageAlternatives",Dock=DockStyle.Fill,AutoScroll=false,WrapContents=false,FlowDirection=FlowDirection.TopDown,Margin=Padding.Empty};
             passageBody.Controls.Add(passageAlternativesPanel,0,0);
             passageAlternativesPanel.Resize+=delegate{foreach(Control row in passageAlternativesPanel.Controls)row.Width=Math.Max(180,passageAlternativesPanel.ClientSize.Width-24);};
-            verseExcerpt=CopyLabel("Scripture text will appear here. Select a detection, or enter a reference.",16,false);verseExcerpt.Font=new Font("Georgia",16);Fill(verseExcerpt);verseExcerpt.AutoEllipsis=true;passageBody.Controls.Add(verseExcerpt,0,1);
+            // Row 0 is the alternatives list (absolute height, set by
+            // RefreshPassageAlternatives) and row 1 is the scripture text. The text
+            // row must be absolute too: as a percent row it stretched and drew over
+            // the buttons beneath the card.
+            // Fixed height, no AutoSize. A Label with AutoSize=true inside a
+            // TableLayoutPanel cell ignores the cell bounds and paints outside them,
+            // which is what drew the scripture text over the card's buttons.
+            verseExcerpt=CopyLabel("Scripture text will appear here. Select a detection, or enter a reference.",16,false);verseExcerpt.Font=new Font("Georgia",16);verseExcerpt.AutoSize=false;verseExcerpt.Dock=DockStyle.Fill;verseExcerpt.AutoEllipsis=true;
+            passageBody.Controls.Add(verseExcerpt,0,1);
             Button edit=new GazelyButton();edit.Name="EditReference";edit.Text="Edit reference";edit.Size=new Size(145,34);StyleIcon(edit,"edit",false,"Enter or adjust book, chapter and verse");
             followSpeech.Name="ReleaseScripture";followSpeech.Text="Release scripture";followSpeech.Size=new Size(132,34);followSpeech.Tag="quiet";
             evidenceTip.SetToolTip(followSpeech,"Release the active scripture or operator hold and resume searching. Quote suggestions may select a new passage.");
             scripture.Controls.Add(Row(edit,followSpeech),0,4);
             useDraft.Text="Use edit";useDraft.Size=new Size(82,34);useDraft.Margin=new Padding(0,0,0,0);
             FlowLayoutPanel fields=Row(Field("Book",draftBook,142),Field("Chapter",draftChapter,62),Field("Verse / range",draftVerse,80),useDraft);fields.Name="ReferenceEditor";fields.Visible=false;
+            // The live editor must hold the operator's typing. Without this, incoming
+            // speech overwrote whatever was being typed: the previous wiring existed
+            // only in an earlier layout that is no longer mounted, so a manual edit
+            // was never marked as an operator draft.
+            draftBook.TextChanged+=EditDraft;draftChapter.TextChanged+=EditDraft;draftVerse.TextChanged+=EditDraft;
             scripture.Controls.Add(fields,0,5);
             Action showEditor=delegate{editing=true;fields.Visible=true;scripture.RowStyles[5].Height=180;edit.Text="Close editor";refreshArrangement();};
             edit.Click+=delegate{editing=!editing;fields.Visible=editing;scripture.RowStyles[5].Height=editing?180:0;edit.Text=editing?"Close editor":"Edit reference";refreshArrangement();};
@@ -902,8 +1004,27 @@ namespace EasyWorshipControllerMvp
             liveDetectedButton.Text="Present";liveDetectedButton.Size=new Size(138,40);StyleIcon(liveDetectedButton,"play",false,"Present selected scripture now");
             previewDetectedButton.Size=new Size(112,40);StyleIcon(previewDetectedButton,"prepare",false,"Prepare selected scripture");StyleIcon(evidence,"info",true,"View source and matching evidence");
             scripture.Controls.Add(Row(liveDetectedButton,previewDetectedButton,evidence),0,7);
-            autoPreviewCheck.Dock=autoLiveCheck.Dock=DockStyle.None;autoPreviewCheck.Size=new Size(172,30);autoLiveCheck.Size=new Size(180,30);autoPreviewCheck.Text="Auto prepare";
-            scripture.Controls.Add(Row(autoPreviewCheck,autoLiveCheck),0,8);
+            // The autonomy control in the panel that actually renders. It replaces
+            // the former free-standing checkbox row: the level is the operator's
+            // single setting, and the checkboxes below are mirrors of it rather
+            // than independent switches.
+            scripture.Controls.Add(BuildAutonomyRow(),0,8);
+            autoPreviewCheck.Dock=autoLiveCheck.Dock=DockStyle.None;
+            // Wide enough that neither label truncates; they are read-only mirrors
+            // of the autonomy level, so their only job is to be legible.
+            // The toggle appends " On"/" Off" after its label, so the box must fit
+            // the label plus that suffix or WinForms ellipsises it to "Auto live …".
+            autoPreviewCheck.Size=new Size(186,26);autoLiveCheck.Size=new Size(196,26);
+            autoPreviewCheck.Text="Auto prepare";autoLiveCheck.Text="Automatic live";
+            FlowLayoutPanel autonomyMirrors=new FlowLayoutPanel();autonomyMirrors.Dock=DockStyle.Fill;autonomyMirrors.Margin=Padding.Empty;autonomyMirrors.WrapContents=false;
+            autonomyMirrors.Controls.Add(autoPreviewCheck);autonomyMirrors.Controls.Add(autoLiveCheck);
+            scripture.Controls.Add(autonomyMirrors,0,9);
+            // The announced-scripture strip: what Gazely believes is being read from
+            // this section, and which member is active. A label only, so it cannot
+            // be interacted with and cannot itself send anything.
+            planStrip=CopyLabel("No scriptures announced yet.",9,false);
+            planStrip.Tag="muted";planStrip.AutoEllipsis=true;planStrip.Name="ScripturePlanStrip";
+            scripture.Controls.Add(planStrip,0,10);
 
             TableLayoutPanel transcript=Vertical(40,0,-100);transcript.Name="LiveTranscriptCard";transcript.Tag="surface";transcript.Padding=new Padding(20);transcript.Margin=new Padding(0,0,7,0);
             clearTranscriptButton.Size=new Size(70,30);clearTranscriptButton.Tag="quiet";
@@ -1321,7 +1442,7 @@ namespace EasyWorshipControllerMvp
             transcript.Controls.Add(Row(transcriptHeading,clearTranscriptButton),0,0);
             Fill(hypothesisLabel);hypothesisLabel.Tag="muted";hypothesisLabel.Text="Live text appears here while you speak.";transcript.Controls.Add(hypothesisLabel,0,1);
             Fill(transcriptTextBox);transcriptTextBox.Font=new Font("Segoe UI",11);transcript.Controls.Add(transcriptTextBox,0,2);
-            TableLayoutPanel suggestion=Vertical(24,38,22,24,34,-100,38,30,30,24,32,24,32);suggestion.Tag="surface";suggestion.Padding=new Padding(14);
+            TableLayoutPanel suggestion=Vertical(30,38,22,24,32,-100,34,34,44,24,32,24,32);suggestion.Tag="surface";suggestion.Padding=new Padding(14);
             Panel scriptureScroll=new Panel();scriptureScroll.Dock=DockStyle.Fill;scriptureScroll.AutoScroll=true;columns.Controls.Add(scriptureScroll,1,0);suggestion.Dock=DockStyle.Top;suggestion.Height=466;scriptureScroll.Controls.Add(suggestion);scriptureScroll.Resize+=delegate{suggestion.Height=Math.Max(466,scriptureScroll.ClientSize.Height);};
             suggestion.Controls.Add(CopyLabel("SCRIPTURE",10,true),0,0);
             Fill(detectedReferenceLabel);detectedReferenceLabel.Font=new Font("Segoe UI",20,FontStyle.Bold);suggestion.Controls.Add(detectedReferenceLabel,0,1);
@@ -1443,19 +1564,20 @@ namespace EasyWorshipControllerMvp
             BuildHowToPage(howToTab);
             BuildAccountPage(accountTab);
             string[] names={"Live workspace","Speech setup","Integrations","Bible versions","How to","Account","History","Diagnostics"};
+            string[] icons={"nav-live","nav-speech","nav-integrations","nav-bibles","nav-howto","nav-account","nav-history","nav-diagnostics"};
             TabPage[] pages={audioTab,setupTab,integrationsTab,mapTab,howToTab,accountTab,historyTab,diagnosticsTab};
             for(int i=0;i<pages.Length;i++)
             {
-                TabPage page=pages[i];Button button=new GazelyButton();button.Text=names[i];button.AutoSize=true;button.Height=32;button.Font=new Font("Segoe UI",9.5f);
-                button.Margin=new Padding(0,0,4,0);navigation.Controls.Add(button);
+                TabPage page=pages[i];GazelyButton button=new GazelyButton();button.Text=names[i];button.IconName=icons[i];button.AutoSize=true;button.Height=30;button.Font=new Font("Segoe UI",9f);
+                button.AccessibleName=names[i]+" page";button.Margin=new Padding(0,0,2,0);navigation.Controls.Add(button);
                 if(page==accountTab && GazelyCloudBuild.FreeAccess)button.Visible=false;
                 button.Click+=delegate { tabs.SelectedTab=page;foreach(Control item in navigation.Controls) item.Tag="quiet";button.Tag="selected";GazelyTheme.Apply(this); };
                 button.Tag=i==0?"selected":"quiet";
             }
-            Button theme=new GazelyButton();theme.Text="Theme";theme.AccessibleName="Change light or dark theme";theme.AutoSize=true;theme.Height=32;theme.Font=new Font("Segoe UI",9.5f);theme.Margin=new Padding(0,0,4,0);
+            GazelyButton theme=new GazelyButton();theme.Text="Theme";theme.IconName="theme";theme.AccessibleName="Change light or dark theme";theme.AutoSize=true;theme.Height=32;theme.Font=new Font("Segoe UI",9.5f);theme.Margin=new Padding(0,0,4,0);
             theme.Click+=delegate { GazelyTheme.Dark=!GazelyTheme.Dark;GazelyTheme.Apply(this);SaveWorkspacePreferences(); };
             navigation.Controls.Add(theme);
-            Button mini=new GazelyButton();mini.Name="OpenMiniOverlay";mini.Text="Mini";mini.AccessibleName="Open Mini overlay";mini.AutoSize=true;mini.Height=32;mini.Font=new Font("Segoe UI",9.5f);mini.Click+=delegate{OpenMiniOverlay();};navigation.Controls.Add(mini);
+            GazelyButton mini=new GazelyButton();mini.Name="OpenMiniOverlay";mini.Text="Mini";mini.IconName="mini";mini.AccessibleName="Open Mini overlay";mini.AutoSize=true;mini.Height=32;mini.Font=new Font("Segoe UI",9.5f);mini.Click+=delegate{OpenMiniOverlay();};navigation.Controls.Add(mini);
             tabs.SelectedIndexChanged+=delegate
             {
                 for(int i=0;i<pages.Length;i++) navigation.Controls[i].Tag=tabs.SelectedTab==pages[i]?"selected":"quiet";

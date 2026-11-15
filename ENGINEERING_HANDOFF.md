@@ -1,5 +1,487 @@
 # Gazely engineering handoff
 
+### 14–15 November — Phase 5: UI sweep, encoding fix, two real bugs, and test debt
+
+**Non-ASCII was corrupted at compile time (fixed).** The builder set no source
+codepage, so the CodeDOM compiler used the system ANSI codepage and damaged every
+non-ASCII character in every source file: `·` became `Â·` in the UI, `—` became
+`-`, and `•`/`○`/`●` were dropped entirely. This was app-wide, not confined to
+Mini, and it affected shipped builds. Fixed with `/codepage:65001`, verified by
+scanning the built assembly (`U+00B7`, `U+2014`, `U+2022` all present, mojibake
+gone). Console output cannot be used to judge this: a correct UTF-16 string
+prints as garbage in the default console codepage, which twice made a working fix
+look broken. Compare character codes.
+
+**Two genuine product bugs found and fixed while making the interface suite pass
+past its long-standing stop point:**
+
+1. **Operator typing was overwritten by incoming speech.** The live reference
+   editor (`ReferenceEditor`, built in `BuildGazelyInterface`) never wired
+   `TextChanged` to `EditDraft`. The only wiring that existed was in an older
+   layout that is no longer mounted, so a manual edit was never marked as an
+   operator draft and incoming speech replaced it. This is the condition the
+   `Speech overwrote an operator edit` assertion had been reporting for weeks; it
+   was a real defect, not a stale test. Fixed by wiring the live editor. A new
+   `operatorTyping` flag separates "a selection is held" (which a complete spoken
+   reference may replace, per the 15 October decision) from "the operator is
+   actively typing" (which nothing may replace).
+
+2. **Candidate rows moved under the operator's click.** `ShouldDeferCandidateRefresh`
+   only checked an open menu and page number, ignoring focus and pointer. The
+   suite's frozen-target assertion, and the product requirement that incoming
+   results never swap a row under a click, were therefore unmet. Fixed to defer
+   while the list has focus or the pointer is over it.
+
+**Interface work, all verified by launching the built app and by screenshots in
+both themes:**
+
+- Nav icons added for all ten destinations, replacing plain text.
+- Mini: autonomy selector replacing two contradictory Auto toggles; detection
+  cards enlarged so scripture text is legible; play button moved to its own
+  column instead of painting over the card; duplicate autonomy label removed;
+  dead space in the passage card reclaimed; alternate double scrollbar removed.
+- Scripture excerpt was painting over the card's buttons. Cause: a `Label` with
+  `AutoSize=true` inside a `TableLayoutPanel` cell ignores the cell bounds. Fixed
+  with a fixed-height docked label and an ellipsis.
+- `AudioLevelMeter` hardcoded a dark track, so light theme showed a black block.
+  Now theme-aware.
+
+**Test debt is the honest headline.** Because the interface suite always died at
+the operator-edit assertion, every assertion after it had never executed. Fixing
+that revealed a cascade: a stale `FindQuotation`/`PublishQuotations` reflection
+arity (both gained a `partial` parameter after the test was written), a quotation
+assertion that compared against a cleared panel rather than a held one, and the
+frozen-target assertion above. Two further harness repairs were needed. The suite
+now passes 15 assertions and stops at `Automatic single-verse range/navigation
+failed`.
+
+**That remaining failure is test-harness state, not a product defect, and this is
+proven.** "Next verse" works: `Test-QuotationIndex` asserts the full chain
+("in Genesis chapter 49 verses 3 and verse 4" → Genesis 49:3 → "Next verse" →
+Genesis 49:4, live-eligible) and passes; an isolation probe against the real
+parser returns `Genesis 49:4 kind=navigation` both with and without a seeded
+active reference. Elapsed time between the two commands in the failing harness is
+83 ms, so the 30-second parser context window is not the cause. Context expiry,
+`displayedContext` and `spokenAfterDisplay` were each checked and each ruled out.
+
+**Coverage added** so the level mapping cannot drift: `Test-QuotationIndex` now
+asserts that a clear "Next verse" is live-eligible at Auto, that Assist can never
+present, and that Assist still prepares. The assertion was confirmed to execute
+by breaking it deliberately and observing the failure.
+
+Validation: all twelve suites pass — parser (332/338 cases), quotation (19),
+adapter (33), passage policy, scripture plan (11), plan lifecycle (11),
+speculation (19), autonomy (8), version navigation (24), chapter recovery (9),
+book recovery, speech lifecycle. Candidate SHA-256
+`2C5D6A3744503FBB20361F2B2DED62236719448403088B54DC14240ED7084074`. Production
+`Gazely.exe` and rollback `Gazely.previous.exe` unchanged.
+
+Still open: the interface suite's remaining assertions below its current stop
+point have never run; the two real-audio fixtures Phase 0 asked for (a real
+enumeration and a real ordinal) are not captured; README and TECHNICAL_GUIDE do
+not yet describe Phases 1–4; and no installer has been built for this state.
+
+### 14 November — non-ASCII UI text was corrupted at compile time (root cause fixed)
+
+Found while inspecting the Mini overlay screenshots for the Phase 5 UI sweep: the
+version line rendered as `KJV Â· For God so loved…` instead of `KJV · For God…`.
+
+This was **not** a Mini layout bug. The build's `CompilerOptions` never set a
+source codepage, so the CodeDOM compiler defaulted to the system ANSI codepage
+and silently corrupted every non-ASCII character in every source file. Measured
+on this machine:
+
+| Character | Compiled result before the fix |
+|---|---|
+| `·` middle dot (U+00B7) | became `Â·` in the UI |
+| `—` em dash (U+2014) | became `-` |
+| `•` bullet (U+2022) | dropped entirely |
+| `○` open circle (U+25CB) | dropped entirely |
+
+So the corruption was app-wide, not confined to Mini: every em dash in the
+interface, the `●`/`○` listening status indicators, `▸`/`▪` and the `·`
+separators were all being damaged or lost in shipped builds. Repro is a two-line
+CodeDOM compile of a string literal with those characters, comparing compiled
+character codes rather than console output.
+
+Fix: `/codepage:65001` added to `CompilerOptions` in
+`Build-EasyWorshipController.ps1`. Verified by compiling a probe and by scanning
+the built assembly: `U+00B7`, `U+2014` and `U+2022` are now all present, and the
+`Â·` mojibake is gone.
+
+Console output cannot be used to judge this — a correct UTF-16 string prints as
+garbage in the default console codepage, which initially made a working fix look
+broken. Compare character codes, not rendered text.
+
+This means the encoding character set the UI depends on is now safe to use, which
+is what makes the Phase 5 visual work (status glyphs, separators, iconography)
+viable at all.
+
+### 14 November — Phase 4 closeout: plan lifetime and quote promotion
+
+The two gaps left open by 4b–4d are now implemented, each as a deterministic
+policy with its own suite.
+
+**Plan lifetime** (`PlanLifecycle`) — four explicit boundaries, all reported to
+the operator rather than silent:
+
+| Boundary | Rule |
+|---|---|
+| New section | a newly declared count ("we're reading two scriptures") clears the previous plan and starts one |
+| Silence | 300 s without speech ends the section |
+| Capacity | more than 20 members clears the plan; a runaway list is a bug, not a sermon |
+| Manual | reserved for the Reset menu entry; the mechanism exists, the menu item is not yet added |
+
+The silence window is deliberately generous. A pastoral pause, a prayer or a long
+illustration can run minutes, and expiring during one would drop a valid plan at
+the worst moment. Expiry writes a visible note to the plan strip ("Previous list
+cleared after a long silence."), so a deictic reference that stops resolving is
+explained rather than looking broken.
+
+**Quote promotion** (`QuotePromotionPolicy`) — "give me that scripture!" now
+resolves. The choice is the **highest-matched** held quotation, not the newest: a
+weak quote should not win merely by arriving last. Only literal `quotation`
+evidence is eligible — a paraphrase rests on similarity alone, and a spoken
+directive must not be what finally puts the weakest evidence class on screen. Two
+candidates within 0.02 are a genuine tie and are **never** resolved
+automatically; the message says so and the operator chooses. The 90-second window
+reuses the existing quotation scope rather than adding a second timer.
+
+A promoted quote travels `SelectPassageAlternative`, the same path an operator's
+own click uses, so it is marked review-required and is never silently live.
+
+`Test-PlanLifecycle.ps1` adds 11 groups: silence/capacity/new-count boundaries, the
+highest-match choice, tie abstention, a clear winner outside the margin,
+paraphrase exclusion, empty-set explanation, and the promotion request wording.
+
+Two harness lessons, both recorded because they will recur. `Test-AutonomyPolicy`
+sliced `AutonomyLevel`..`MainForm`, and `QuotePromotionPolicy` was added into that
+span while needing a dependency the harness does not include — a new type placed
+between two existing slice anchors breaks whichever harness spans them. And a
+`Candidate` class written for a design that was later inlined was dead code; the
+warnings-as-errors build is what surfaced it.
+
+Validation: twelve suites pass — parser (332/338), quotation (19), adapter (33),
+passage policy, scripture plan (11), plan lifecycle (11), speculation (19),
+autonomy (8), version navigation (24), chapter recovery (9), book recovery,
+speech lifecycle. Candidate SHA-256
+`5AF36EF9599430DBAC07333454D1D1689876A8C212C209C9ADD84ADED1376337`. Production
+`Gazely.exe` and rollback `Gazely.previous.exe` unchanged.
+
+Still open: neither the plan nor promotion has been exercised against a live
+service, and the manual Reset menu entry for the plan is not yet exposed in the UI.
+
+### 14 November — Phase 4b–4d: scripture plan, deictics and the plan strip
+
+`ScripturePlan.cs` holds the ordered set of scriptures announced in a sermon
+section, with an active cursor. It is deliberately **dependency-free** so it
+compiles and tests on its own, which avoids the harness churn that 4a caused when
+a new type appeared inside the sliced parser region.
+
+The reported scenario works end to end: three scriptures announced, "let's start
+from Hebrews 10:2" activates only that member, and a bare enumeration activates
+nothing — which is the behaviour the operator asked for, since the machine must
+not walk through announced scriptures one by one. "The next verse I called in
+Psalms" and "the final scripture" resolve by deterministic lookup over the set.
+
+**Abstention is the load-bearing rule.** The first implementation resolved within
+the book-filtered candidates, so "the next one in Psalms" returned Psalms 23 when
+the plan held two Psalms. That phrase is genuinely ambiguous and the doctrine
+says abstain. A book constraint on Next/Previous must now narrow the plan to
+exactly one member; counting ordinals (first/second/last) are exempt, because they
+name a position and the constraint checks the answer rather than narrowing the
+field. The test caught this before it shipped.
+
+`PlanDirectives` recognises the wording: declared counts in thirteen phrasings,
+directive frames that activate ("let's start from", "turn to", "open to") as
+distinct from bare announcements, ordinal references with an optional book
+constraint, and quote promotion ("give me that scripture"). None of it is model
+inference; the candidate set is one this process built.
+
+Integration: `FeedScripturePlan` runs on each final transcript, deduplicated by
+utterance id, adds every reference an announcement mentions, activates only on a
+directive frame, and resolves a deictic reference to a detection that then travels
+the ordinary review and automation path. A resolved plan reference is
+`EvidenceKind="plan"` at 0.90 with `RequiresReview=false` — it is a navigation
+result, not a guess, and it is the operator's announced set being followed.
+
+4d is a **label**, not a control: the plan strip shows what has been announced and
+which member is next. It cannot be clicked into producing an action. Verified by
+launching the built app and dumping the live window, which shows
+`'No scriptures announced yet.'` at row 10 of the SelectedPassage panel beneath
+the autonomy control.
+
+Validation: twelve suites pass — parser (332/338 cases), quotation (19), adapter
+(33), passage policy, scripture plan (11 groups), speculation (19), autonomy (8),
+version navigation (24), chapter recovery (9), book recovery, speech lifecycle.
+Candidate SHA-256
+`D62AB74B979E58C9965851B0B3040C243AC5F9CE75DBC039AF127906CF912252`.
+
+Not implemented from the approved plan: "give me that scripture!" is recognised as
+a directive but not yet wired to promote the highest-matched held quote, and plan
+lifetime has no explicit section boundary yet — it resets only on a new listening
+session. Both are recorded rather than claimed. The plan has never been exercised
+against a live service.
+
+### 14 November — Phase 4a: book correction survives garbled speech
+
+The operator's Micah report is now handled. `BookPronunciationRecovery.cs` mirrors
+`ChapterPronunciationRecovery.cs`: it takes the words after a correction cue,
+strips spoken filler, synthesizes them and compares phonemes against every
+canonical book name by normalized Levenshtein distance. The recognizer's `mica`
+and `my lagai` now resolve to **Micah**. `TryBookCorrection` uses it only when no
+alias matched, so exact matches keep their existing path and cost.
+
+The three causes recorded from the recording are each addressed: the alias table
+is no longer the only route, book names now have the phonetic recovery that
+chapter numbers already had, and filler between cue and book is tolerated — the
+test caught that the original cue regex could not match `"no, Micah"` at all, and
+that a second cue often follows the first (`"no, I mean, Micah"`). Both are fixed.
+
+Guards: a maximum normalized distance of 0.30 and a minimum 0.06 margin over the
+runner-up, so a near-tie abstains rather than guessing. The recovery is created
+lazily on first use and failure is recorded rather than thrown, so a machine
+without a usable voice loses only this capability. A recovered book stays
+`EvidenceKind="correction"` and `RequiresReview=true` — it can never inherit
+automatic permission, and the reason text distinguishes a recovery from a plain
+correction.
+
+`Test-BookRecovery.ps1` covers filler stripping (six phrasings), three phrases
+that must *not* be treated as corrections, the reported `mica` case, the
+recording's `my lagai` rendering, four negatives that must not become book names,
+and the distance function itself.
+
+Registering a new source file has a cost worth recording: `BookPronunciationRecovery`
+is referenced from the parser region that four harnesses slice, so
+`Test-ScriptureParser`, `Test-QuotationIndex`, `Test-PassagePolicy` and
+`Test-ChapterRecovery` each had to include the new file, and the sliced code is
+in the global namespace while the new file carries its own — the namespace
+wrapper must be stripped for them to see each other. Every harness that compiles
+source by slice is affected by a new type in that region.
+
+Validation: all ten suites pass — parser, quotation (19), adapter (33), passage
+policy, speculation (19), autonomy (8), version navigation (24), chapter recovery
+(9), book recovery, speech lifecycle. Candidate SHA-256
+`45C4DBB5580803B0AE66257CF4B9D46D4F14D08D9A2DC795FF3B2C23D1A48F2F`. Production
+and rollback builds unchanged.
+
+Not yet done in Phase 4: the scripture plan, focus stack, deictic resolution
+("the next one I called in Psalms"), "give me that scripture!", and the plan
+strip. Also unverified: book recovery against the actual recording, which needs
+the operator to replay it.
+
+### 14 November — Phase 3 autonomy control
+
+Three named levels replace independent automation toggles, per the approved plan.
+`AutonomyPolicy` carries the whole mapping and is testable on its own:
+
+| Level | Prefill | Auto prepare | Automatic live |
+|---|---|---|---|
+| Observe | no | no | no |
+| Assist | yes | yes | no |
+| Auto | yes | yes | yes |
+
+Assist is auto prepare on, auto live off — the product-owner decision. Auto keeps
+prepare **on** as well, because quotes stay preview-only and the chapter-only hold
+is what keeps a verse-1 guess off screen (Phase 4 still owes the promise-based
+plan; this hold is the interim safety).
+
+The two existing checkboxes remain as **mirrors** of the level rather than
+independent settings. Every automation decision reads one value,
+`EffectiveAutonomy`. The mirrors exist so the existing preference keys
+(`autoLive`, `autoPrepare`), the Mini overlay and the suite expectations keep
+working, and so a capability guard can cap the level. An unavailable capability
+caps rather than silently grants: Auto without automatic-live permission lands on
+Assist, and nothing caps upward past the operator's choice.
+
+The level is derived from the two existing keys at restore, so an existing
+installation needs no migration. `ApplyAutonomy(level, save)` makes writing
+preferences opt-in; construction and restore must not write back, or a restored
+level would be overwritten by the default before it is read.
+
+`Test-AutonomyPolicy.ps1` adds 8 checks (mapping per level, level ordering and
+ordinals matching the selector, guard capping down but never up).
+
+Two defects were introduced and caught during this work, both recorded because
+each is a trap:
+
+- A self-call in `BuildAutonomyControl` — an earlier edit replaced the wrong
+  `SetAutonomy` line and left the builder calling itself, producing a
+  `StackOverflowException` that `Test-SpeechLifecycle` surfaced. Removed.
+- The pre-existing `if(autoLiveCheck.Checked)autoPreviewCheck.Checked=false;`
+  line in `RestoreWorkspacePreferences` still encoded the old semantics and would
+  have contradicted Auto keeping prepare on. Replaced by the level derivation.
+
+Validation: parser (332/338 cases), quotation (19), adapter (33), passage policy,
+speculation (19), autonomy (8), version navigation (24), chapter recovery (9) and
+speech lifecycle (3/3) all pass, with MiniOnly and FreeAccess. The full interface
+suite still stops at the pre-existing `Speech overwrote an operator edit`
+assertion, unchanged by this work. Candidate SHA-256
+`8DC679ECB924C12ED26A0D2A0636884DF0843C8517015082147A58EC90C4FB80`; marker
+matches. Production `Gazely.exe` and rollback `Gazely.previous.exe` unchanged.
+
+Not verified: the autonomy selector has not been exercised against a running
+EasyWorship, and the level UI is new since the operator's last test.
+
+### 14 November — speculation extracted and regression added
+
+The speculation decision had no automated coverage; it was proven only by
+compilation and by the surrounding suites staying green. It is now a policy class
+in its own right, `SpeculationPolicy`, following the `PassageSelectionPolicy`
+pattern: `BuildTarget`, `Plan`, `SameBookChapter` and a nested `Memory` for the
+idempotence state. This removes the logic from `MainForm` and is what makes it
+testable, because the harnesses compile source by slice and cannot slice a
+partial class.
+
+`Test-SpeculationPolicy.ps1` covers 19 checks: a complete explicit reference is
+pre-filled as called; the same reference is not prepared twice; a chapter-only
+call pre-fills verse 1 and never a guessed verse; quotation, paraphrase and
+review-required evidence are all refused; operator input, not-listening and
+in-flight-send conditions each stand down, as does recent activity in the target
+application; a failed preparation is not retried; an already presented reference
+is not pre-filled; a confirmed later verse outranks an earlier partial guess; and
+the six book-and-chapter comparisons that decide the verse-only fast path.
+
+**The new test found a real gap on its first run.** `BuildTarget` never checked
+`RequiresReview` — only the caller filtered it. That made the invariant
+load-bearing on a caller remembering to filter. `Plan` now refuses review-required
+detections itself, so the rule cannot be lost by a calling site.
+
+Two harness facts had to be respected, and both are recorded here because they
+will bite again. The class was first placed between `ScriptureDetection` and
+`UtteranceSegmenter`, which is exactly the window `Test-ScriptureParser`,
+`Test-QuotationIndex`, `Test-PassagePolicy` and `Test-ChapterRecovery` slice —
+inserting it there broke four suites at once. It now sits immediately above
+`MainForm`, outside every harness slice. Any harness that needs it must slice
+`ScriptureDetection`..`UtteranceSegmenter` **and**
+`SpeculationPolicy`..`MainForm` separately. Moving or renaming a class in the
+sliced window breaks test compilation even when the logic is sound.
+
+Validation: build with warnings as errors; parser, quotation (19), adapter (33),
+passage policy, speculation (19), version navigation (24), chapter recovery (9)
+and speech lifecycle all pass, with MiniOnly and FreeAccess. Candidate SHA-256
+`B72714A945F9404A25CFFB5DF78EBCEE65C7F6F19931E04B93864D8A1F78BEBA`; marker
+matches. Production `Gazely.exe` and rollback `Gazely.previous.exe` unchanged.
+
+Still open: speculation and the yield guard remain unverified against a live
+service, and decision 3's `CompleteExplicit` bypass is accepted on operator
+listening rather than on a measured threshold.
+
+### 14 November — Auto was silently refusing correct calls (decision 3)
+
+Operator report: with either Automatic Live or Auto prepare armed, Selected
+Passage showed "reference resolved" and nothing happened.
+
+Cause, found in the parser's confidence ladder rather than in the automation:
+
+| Parsed as | Confidence | Band | Auto requires >= 0.88 |
+|---|---:|---|---|
+| book + explicit chapter + explicit verse | 0.97 | HIGH | eligible |
+| book + chapter:verse (colon) | 0.95 | HIGH | eligible |
+| book + two numeric values | 0.88 | MEDIUM | **refused** |
+| inferred separator | 0.82 | MEDIUM | refused |
+
+`0.88 >= 0.88` is false, so a plainly correct call parsed as "book + two numeric
+values" was refused while displayed. The operator's log shows it directly
+(`Detected scripture: Genesis 49:5 — MEDIUM`). Both toggles failed for one reason:
+`CanPreview` shares the gate through `CanAutomate`. This is exactly the failure
+the approved decision 3 exists to remove — the figure is a heuristic, not a
+calibrated probability, and it was rejecting correct work.
+
+Fix: `ScriptureDetection.CompleteExplicit`, set only where every part of the
+reference was genuinely spoken or unambiguously written — not an inferred
+separator, not a range, not review-required, not a correction. `CanAutomate`
+and `CanPreview` present such a reference on the strength of the evidence kind.
+Every other path keeps its threshold unchanged. Corrections, ranges and
+review-required candidates are excluded, so the bypass cannot be reached by
+guesswork.
+
+A first attempt also removed the spoken-range rule and `Test-QuotationIndex`
+failed on "Spoken range must start at its first verse without mutating parsed
+range". That rule is existing tested behaviour and is distinct from the score
+gate; it was restored. The suite caught a real over-reach.
+
+Validation: parser, quotation (19), adapter (33), passage policy, version
+navigation (24), chapter recovery (9) and speech lifecycle all pass, with
+MiniOnly and FreeAccess. Operator confirmed Auto working after the change.
+
+Candidate SHA-256 `0F33CB3F8383070FF7D3C48010210C31D80C08EA0545CBB4503EE4A7AFC19230`.
+Production `Gazely.exe` (`82D30869…`) and rollback `Gazely.previous.exe`
+(`A366326E…`) unchanged.
+
+Still open, and flagged rather than hidden: the bypass is a deliberate reduction
+in gating, so its acceptance test is operator listening. Speculation's timing
+benefit and the yield guard's behaviour remain unmeasured against a live service,
+and no automated regression yet covers the speculation decision logic.
+
+### 14 November — book correction does not survive garbled speech (Phase 4 input)
+
+From `Sample 2 - PJoe Malachi-Micah.mp3`: the preacher says "give me Malachi 4:1
+… no, Micah" and, as a human would, does not repeat the chapter and verse.
+
+`TryBookCorrection` already implements the intended behaviour — a "no / sorry /
+correction / i mean / rather" cue followed by a book name inherits the recent
+chapter and verse as a review-required correction. It fails on this recording for
+three independent reasons, all now recorded in EXECUTION_PLAN's Phase 4 additions:
+the book alias is exact while the ASR produced `mica` / `my lagai` / `no mica
+mica`; chapter numbers have bounded phonetic recovery but book names have none;
+and filler between the cue and the book breaks the `^(?:alias\s*)+$` anchor.
+
+### 14 November — Phase 2 speculation and the yield guard
+
+Speculation pre-fills EasyWorship before the operator asks, so the mechanical
+cost overlaps the preacher's pause instead of following it. It only ever touches
+state that is undone by not pressing Enter; a wrong guess costs a retype, not a
+wrong live verse.
+
+What is speculated:
+
+- A stable, non-review detection with a resolved book and chapter. Provisional
+  and partial detections are excluded, which also keeps speculation off the
+  partial-text path.
+- Book and chapter only. A verse is never guessed, because the read itself would
+  then be disturbed. A chapter-only call ("Isaiah 60") pre-fills Isaiah 60:1 to
+  match the agreed behaviour that verse 1 is shown but not presented.
+- A confirmed later verse of the same chapter outranks an earlier partial guess,
+  so a corrected reference does not leave the stale one pre-filled.
+
+What is refused: quotation and paraphrase evidence, review-required candidates,
+any reference already prepared, any reference that previously failed to prepare,
+and any reference that has already gone live for that chapter. Version movement
+is deliberately not speculated — Bible selection stays the operator's until a
+send actually needs it. Version changes also carry a live-screen risk that
+pre-filling does not.
+
+The yield guard (decision 4) has three parts. `operatorTouchedTarget` is true
+while an operator edit is held, while a history row is being chosen, or while
+focus or the pointer is inside the workspace draft fields. `lastAutomationActionUtc`
+covers the moment a reference is presented. A 120 ms timer watches the foreground
+window and the desktop's last-input tick, so any keyboard or mouse activity in
+EasyWorship stands speculation down for four seconds. Cheap Win32 checks carry no
+timing-window discontinuity; the timer exists only for the cross-process case.
+
+Ordering is deliberate: the failable automation call is made on the UI thread
+after a `BeginInvoke`, and the guard is re-checked inside that callback, so a
+reference prepared while the operator was already typing cannot complete.
+
+Validation: build with warnings as errors; parser, quotation, adapter (33),
+passage policy, version navigation (24), chapter recovery (9) and speech
+lifecycle suites pass, plus MiniOnly and FreeAccess. One lifecycle run failed
+once with `Unable to remove the file to be replaced` — a file lock on the
+temporary test executable, which passed 3/3 on immediate re-run and is not
+related to this change. The full interface suite still stops at the pre-existing
+`Speech overwrote an operator edit` assertion.
+
+Candidate SHA-256 `7510E71D3A39640AD9103D504FFD031F4A9123F166D9B3070C1B56C5723702B5`;
+marker matches. Production `Gazely.exe` (`82D30869…`) and rollback
+`Gazely.previous.exe` (`A366326E…`) unchanged.
+
+Not verified, and material: speculation has never been exercised against a
+running EasyWorship. Its timing benefit and the yield guard's behaviour in
+practice both require a live operator test. The in-process decision logic has no
+automated regression yet; its test surface was prototyped but is not wired into
+any suite.
+
 ### 14 November — Phase 0 measurement and Phase 1 automation timing
 
 **Phase 0** (measurement only, no product change) is recorded in

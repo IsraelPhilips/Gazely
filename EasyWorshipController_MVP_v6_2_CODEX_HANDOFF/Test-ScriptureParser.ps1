@@ -1,9 +1,12 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Speech
 $source = Get-Content (Join-Path $PSScriptRoot 'EasyWorshipController.cs') -Raw -Encoding UTF8
 $start = $source.IndexOf('    internal sealed class ScriptureDetection')
 $end = $source.IndexOf('    internal sealed class UtteranceSegmenter')
-$parser = 'using System; using System.Collections.Generic; using System.Text; using System.Text.RegularExpressions; ' + $source.Substring($start, $end - $start).Replace('internal sealed class', 'public sealed class')
-Add-Type -TypeDefinition $parser
+$parser = 'using System; using System.Collections.Generic; using System.Text; using System.Text.RegularExpressions; using System.Speech.Synthesis; ' + $source.Substring($start, $end - $start).Replace('internal sealed class', 'public sealed class')
+$bookRaw = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'BookPronunciationRecovery.cs')) -replace '(?m)^using [^;]+;\r?\n',''
+$bookSource = $bookRaw.Substring($bookRaw.IndexOf('{')+1, $bookRaw.LastIndexOf('}')-$bookRaw.IndexOf('{')-1)
+Add-Type -TypeDefinition ($parser + $bookSource) -ReferencedAssemblies ([AppDomain]::CurrentDomain.GetAssemblies()|Where-Object {$_.GetName().Name -eq 'System.Speech'}|Select-Object -First 1).Location
 $count = 0
 function Assert-Reference($detector, [string]$phrase, [string]$expected, [string]$translation = '') {
     $result = $detector.Feed($phrase)

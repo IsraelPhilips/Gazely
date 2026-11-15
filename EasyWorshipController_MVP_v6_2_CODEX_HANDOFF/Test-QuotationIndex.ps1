@@ -1,10 +1,19 @@
 param([string]$TranscriptCsv = '')
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Speech
 $source = Get-Content (Join-Path $PSScriptRoot 'EasyWorshipController.cs') -Raw -Encoding UTF8
 $start = $source.IndexOf('    internal sealed class ScriptureDetection')
 $end = $source.IndexOf('    internal sealed class UtteranceSegmenter')
-$core = 'using System; using System.Collections.Generic; using System.Text; using System.Text.RegularExpressions; ' + $source.Substring($start, $end-$start).Replace('internal sealed class', 'public sealed class').Replace('internal static class SemanticEvidencePolicy','public static class SemanticEvidencePolicy')
-Add-Type -TypeDefinition $core
+$core = 'using System; using System.Collections.Generic; using System.Text; using System.Text.RegularExpressions; using System.Speech.Synthesis; ' + $source.Substring($start, $end-$start).Replace('internal sealed class', 'public sealed class').Replace('internal static class SemanticEvidencePolicy','public static class SemanticEvidencePolicy')
+$bookRaw = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'BookPronunciationRecovery.cs')) -replace '(?m)^using [^;]+;\r?\n',''
+$bookSource = $bookRaw.Substring($bookRaw.IndexOf('{')+1, $bookRaw.LastIndexOf('}')-$bookRaw.IndexOf('{')-1)
+# AutonomyPolicy lives above MainForm and depends on nothing, so it is sliced in
+# here to assert the level mapping alongside the navigation policy.
+$autonomyStart=$source.IndexOf('    internal enum AutonomyLevel')
+$autonomyEnd=$source.IndexOf('    // Decides what "give me that scripture!" promotes')
+if($autonomyEnd -lt 0){$autonomyEnd=$source.IndexOf('    internal sealed partial class MainForm')}
+$autonomy=$source.Substring($autonomyStart,$autonomyEnd-$autonomyStart).Replace('internal static class','public static class').Replace('internal enum','public enum')
+Add-Type -TypeDefinition ($core + $bookSource + $autonomy) -ReferencedAssemblies ([AppDomain]::CurrentDomain.GetAssemblies()|Where-Object {$_.GetName().Name -eq 'System.Speech'}|Select-Object -First 1).Location
 $clock = [Diagnostics.Stopwatch]::StartNew()
 $index = New-Object ScriptureQuoteIndex (Join-Path $PSScriptRoot 'corpus/kjv.tsv')
 $strong='People who wait on the Lord will get fresh strength and rise up like eagles'
@@ -30,6 +39,14 @@ $next=[SpeechPresentationPolicy]::Resolve($speechParser.Feed('Next verse'),$firs
 if($next.ReferenceText -ne 'Genesis 49:4' -or ![SpeechPresentationPolicy]::CanAutomate($next)){throw 'Clear contextual next verse should be eligible'}
 $unanchored=[SpeechPresentationPolicy]::Resolve($speechParser.Feed('Next verse'),$null,$false)
 if([SpeechPresentationPolicy]::CanAutomate($unanchored)){throw 'Unanchored navigation became automatic'}
+# The autonomy level decides what a clear "next verse" actually does. Assist
+# prepares it; Auto presents it. Both halves are asserted here so the mapping
+# cannot drift: a navigation result must be live-eligible at Auto and must never
+# be live-eligible at Assist.
+if(-not [AutonomyPolicy]::AutomaticLive([AutonomyLevel]::Auto)){throw 'Auto level cannot present'}
+if([AutonomyPolicy]::AutomaticLive([AutonomyLevel]::Assist)){throw 'Assist level must never present'}
+if(-not [AutonomyPolicy]::AutoPrepare([AutonomyLevel]::Assist)){throw 'Assist level must prepare'}
+if(-not [SpeechPresentationPolicy]::CanAutomate($next)){throw 'A clear next verse is not live-eligible, so Auto could never present it'}
 foreach($text in @('Genesis one one','John 3:16')){if(![SpeechPresentationPolicy]::CanAutomate([SpeechPresentationPolicy]::Resolve((New-Object ScriptureDetector).Feed($text),$null,$false))){throw 'Clear numeric reference blocked'}}
 $quote=$index.Find('Unstable as water thou shalt not excel')
 if([SpeechPresentationPolicy]::CanAutomate($quote)){throw 'Uncertain quotation became automatic'}

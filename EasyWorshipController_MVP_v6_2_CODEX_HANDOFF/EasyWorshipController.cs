@@ -708,18 +708,16 @@ namespace EasyWorshipControllerMvp
 
             RestoreAndForeground(ew);
 
-            // Fast path: the reference already reads as the wanted book+chapter,
-            // so only the verse is missing. This is pre-fill, never go-live, and
-            // it is guarded by readback; anything unexpected falls through to the
-            // full sequence below. Intended for the Auto level, where speculation
-            // has already entered the book and chapter.
+            // Fast path: the reference already reads as the wanted book and
+            // chapter, so only the verse is missing. This is pre-fill, never
+            // go-live, and it is guarded by readback; anything unexpected falls
+            // through to the full sequence below. This is the state Auto
+            // speculation produces: it enters book and chapter, and leaves the
+            // control showing "<book> <chapter>:1", so the verse is entered alone.
             string wanted = NormalizeWhitespace(request.ReferenceText);
-            string prefix = NormalizeWhitespace(request.Book + " " + request.Chapter + ":");
             string preFill = NormalizeWhitespace(reference.Current.Name);
-            bool fastPath =
-                string.Equals(preFill, prefix, StringComparison.OrdinalIgnoreCase) ||
-                (!string.IsNullOrEmpty(preFill) &&
-                 prefix.StartsWith(preFill, StringComparison.OrdinalIgnoreCase));
+            bool fastPath = SpeculationPolicy.SameBookChapter(preFill, wanted) &&
+                !string.Equals(preFill, wanted, StringComparison.OrdinalIgnoreCase);
             if (fastPath)
             {
                 CheckCanceled();
@@ -1590,6 +1588,12 @@ namespace EasyWorshipControllerMvp
         public int VerseEnd = 0;
         public bool RequiresReview = false;
         public string EvidenceKind = "explicit";
+        // Set only for a complete, unambiguous spoken book+chapter+verse. This is
+        // the evidence-kind fact behind the approved Auto behaviour: such a
+        // reference is presentable without clearing a score threshold, because
+        // the score is a heuristic and a valid call was being refused at 0.88.
+        // Never set by interpretation, inference or review-required paths.
+        public bool CompleteExplicit;
         public string MatchedText = string.Empty;
         public string Translation;
         public bool TranslationExplicit;
@@ -1706,6 +1710,26 @@ namespace EasyWorshipControllerMvp
         }
 
         private readonly List<BookAlias> books = new List<BookAlias>();
+        // Optional bounded phonetic recovery for a misheard book name. Created
+        // lazily and only when a correction cue found no alias, so the parser
+        // never pays for a speech voice unless it is needed.
+        private BookPronunciationRecovery bookRecovery;
+        private bool bookRecoveryFailed;
+        private string bookRecoveryFailure;
+        private void LogBookRecoveryFailure(Exception ex)
+        {
+            bookRecoveryFailed=true;
+            bookRecoveryFailure=ex.GetType().Name+": "+ex.Message;
+            bookRecovery=null;
+        }
+        private BookPronunciationRecovery EnsureBookRecovery()
+        {
+            if(bookRecovery!=null || bookRecoveryFailed)return bookRecovery;
+            try{bookRecovery=new BookPronunciationRecovery();}
+            catch(Exception ex){LogBookRecoveryFailure(ex);}
+            return bookRecovery;
+        }
+        public string BookRecoveryStatus { get { return bookRecoveryFailed?"unavailable ("+bookRecoveryFailure+")":bookRecovery==null?"not loaded":bookRecovery.VoiceName; } }
         private readonly Dictionary<string, string> translationAliases =
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private DateTime contextUpdatedUtc = DateTime.MinValue;
@@ -2006,8 +2030,7 @@ namespace EasyWorshipControllerMvp
         }
 
         private ScriptureDetection TryBookCorrection(string text)
-        {
-            // Only an explicit correction followed solely by a known book (possibly
+        {            // Only an explicit correction followed solely by a known book (possibly
             // repeated) can inherit numbers. Ordinary book mentions start a new draft.
             Match marker=Regex.Match(text,@"\b(?:no|sorry|correction|i mean|rather)\s+(.+)$");
             if(!marker.Success)return null;
@@ -2015,6 +2038,18 @@ namespace EasyWorshipControllerMvp
             foreach(BookAlias book in books)
                 if(Regex.IsMatch(marker.Groups[1].Value,@"^(?:"+Regex.Escape(book.Alias)+@"\s*)+$"))
                 {replacement=book.Canonical;break;}
+            // The recognizer renders unfamiliar book names phonetically ("mica",
+            // "my lagai"), so an exact alias often does not match. Bounded phonetic
+            // recovery supplies the book when the pronunciation is unambiguous;
+            // the result stays review-required like any other correction.
+            bool recovered=false;
+            BookPronunciationRecovery recovery=EnsureBookRecovery();
+            if(replacement==null && recovery!=null)
+            {
+                BookRecoverySuggestion guess=null;
+                try{guess=recovery.Find(text);}catch(Exception ex){LogBookRecoveryFailure(ex);}
+                if(guess!=null){replacement=guess.Book;recovered=true;}
+            }
             if(replacement==null)return null;
             ScriptureDetection anchor=correctionContext;
             string prefix=text.Substring(0,marker.Index).Trim();
@@ -2024,7 +2059,9 @@ namespace EasyWorshipControllerMvp
                 (anchor.VerseEnd>0 && !BibleCanon.IsValid(replacement,anchor.Chapter,anchor.VerseEnd)))return null;
             ScriptureDetection result=anchor.Snapshot();result.Book=replacement;
             result.EvidenceKind="correction";result.RequiresReview=true;result.Confidence=0.85;
-            result.Reason="Book corrected from "+anchor.Book+"; retained the recently called chapter and verse. Confirm before presenting.";
+            result.Reason=recovered
+                ?"Book recovered by pronunciation from '"+marker.Groups[1].Value.Trim()+"'; retained the recently called chapter and verse. Confirm before presenting."
+                :"Book corrected from "+anchor.Book+"; retained the recently called chapter and verse. Confirm before presenting.";
             return result;
         }
 
@@ -2148,6 +2185,7 @@ namespace EasyWorshipControllerMvp
                         if(!TryParseChapterVerse(chapter+" verse "+correction.Groups[1].Value,
                             out correctedChapter,out correctedVerse,out correctedEnd,out cw,out vw,out co)) return null;
                         d.Verse=correctedVerse; d.VerseEnd=correctedEnd; d.RequiresReview=true;
+                        d.CompleteExplicit=false;
                     }
 
                     if (hadChapterWord && hadVerseWord)
@@ -2166,6 +2204,12 @@ namespace EasyWorshipControllerMvp
                         d.Reason = "book + two numeric values";
                     }
 
+                    // A complete literal call, only where every part was spoken
+                    // or unambiguously written. An inferred separator, a
+                    // correction, a range, or a phonetic chapter guess each clear
+                    // this again below.
+                    d.CompleteExplicit = !inferredSeparator && verseEnd <= verse && !d.RequiresReview;
+
                     if (translationExplicit)
                         d.Confidence = Math.Min(0.99, d.Confidence + 0.01);
 
@@ -2173,6 +2217,7 @@ namespace EasyWorshipControllerMvp
                     {
                         d.Confidence = 0.82;
                         d.Reason = "Interpreted number formatting — confirm before showing";
+                        d.CompleteExplicit = false;
                     }
 
                     return d;
@@ -2808,6 +2853,9 @@ namespace EasyWorshipControllerMvp
             {
                 string range=d.ReferenceText;d.VerseEnd=0;
                 // Corrections and number-recovery guesses still require review.
+                // A clear spoken range is presented at its first verse; this is
+                // existing tested behaviour and is not the score gate that Auto
+                // decision 3 removes.
                 if(d.EvidenceKind=="explicit" && d.Confidence>=0.88 && !Regex.IsMatch(d.SourceText??"",@"\b(sorry|correction|i mean)\b",RegexOptions.IgnoreCase))d.RequiresReview=false;
                 d.Reason+="; announced "+range+"; start at the first verse";
             }
@@ -2823,9 +2871,23 @@ namespace EasyWorshipControllerMvp
             return d;
         }
         public static bool CanAutomate(ScriptureDetection d)
-        {return PassageSelectionPolicy.CanAutoQuote(d) || (d!=null && !d.RequiresReview && d.Confidence>=0.88 && (d.EvidenceKind=="explicit" || d.EvidenceKind=="navigation"));}
+        {
+            if(d==null)return false;
+            // Approved Auto behaviour: a complete, unambiguous spoken
+            // book+chapter+verse is presented on the strength of the evidence
+            // kind being explicit. The confidence figure is a heuristic, not a
+            // calibrated probability, and it was refusing correct calls (a literal
+            // call parsed as "book + two numeric values" scores 0.88 and failed a
+            // ">= 0.88" test). Only the explicit kind may bypass the score; every
+            // other path keeps its threshold.
+            if(d.CompleteExplicit && !d.RequiresReview)return true;
+            return PassageSelectionPolicy.CanAutoQuote(d) || (d!=null && !d.RequiresReview && d.Confidence>=0.88 && (d.EvidenceKind=="explicit" || d.EvidenceKind=="navigation"));
+        }
         public static bool CanPreview(ScriptureDetection d)
-        {return CanAutomate(d) || PassageSelectionPolicy.Strong(d);}
+        {
+            if(d!=null && d.CompleteExplicit && !d.RequiresReview)return true;
+            return CanAutomate(d) || PassageSelectionPolicy.Strong(d);
+        }
     }
     internal sealed class ScriptureQuoteIndex
     {
@@ -3108,6 +3170,7 @@ namespace EasyWorshipControllerMvp
         }
         public void Dispose(){if(worker!=null){try{if(!worker.HasExited)worker.Kill();}catch{}worker.Dispose();worker=null;}}
     }
+
 
     internal sealed class QuotationContext
     {
@@ -4120,7 +4183,9 @@ namespace EasyWorshipControllerMvp
             base.OnPaint(e);
 
             Rectangle area = ClientRectangle;
-            e.Graphics.Clear(Color.FromArgb(28, 30, 34));
+            // Theme-aware: the hardcoded dark track was near-black on the light
+            // theme, which read as a solid block instead of a quiet meter.
+            e.Graphics.Clear(GazelyTheme.Dark ? Color.FromArgb(28, 30, 34) : Color.FromArgb(226, 224, 216));
 
             int segments = Math.Max(8,Math.Min(32,area.Width/6));
             int gap = 2;
@@ -4154,7 +4219,7 @@ namespace EasyWorshipControllerMvp
                     color = Color.FromArgb(221, 72, 72);
 
                 if (i >= active)
-                    color = Color.FromArgb(58, 61, 66);
+                    color = GazelyTheme.Dark ? Color.FromArgb(58, 61, 66) : Color.FromArgb(200, 198, 190);
 
                 using (SolidBrush brush = new SolidBrush(color))
                     e.Graphics.FillRectangle(brush, r);
@@ -4177,6 +4242,263 @@ namespace EasyWorshipControllerMvp
                     peakX,
                     area.Height - 2);
             }
+        }
+    }
+
+    // Decides what may be pre-filled before the operator asks. Speculation only
+    // touches state that is undone by not pressing Enter, so a wrong guess costs
+    // a retype, not a wrong live verse. It guesses book and chapter only: typing
+    // a verse would disturb the read that follows. Deterministic and model-free,
+    // like the rest of the interpretation layer.
+    internal sealed class SpeculationPolicy
+    {
+        public sealed class Decision
+        {
+            public bool Prepare;
+            public ScriptureRequest Target;
+        }
+        // Idempotence: a failed preparation is not retried, the last successful
+        // one is not repeated, and a reference that has already gone live is
+        // never pre-filled again.
+        public sealed class Memory
+        {
+            public ScriptureRequest LastPrepared;
+            public string FailedKey;
+            public string LiveKey;
+            public void NotePrepared(ScriptureRequest request) { LastPrepared = request; FailedKey = null; }
+            public void NoteFailed(ScriptureRequest request) { FailedKey = Key(request); }
+            public void NoteLive(ScriptureRequest request) { if (request != null) LiveKey = Key(request); }
+        }
+
+        private const double OperatorStandDownSeconds = 4;
+
+        internal static string Key(ScriptureRequest request)
+        {
+            return request == null ? string.Empty : request.Book + " " + request.Chapter;
+        }
+
+        // UIA reports the compound reference as "Book Chapter:Verse" ("Genesis
+        // 1:1", "Daniel 3:18"), the same shape the request builds. Two references
+        // share a book and chapter when the text before the verse separator is
+        // equal, whatever that separator is.
+        public static bool SameBookChapter(string a, string b)
+        {
+            a = Normalize(a);
+            b = Normalize(b);
+            if (a.Length == 0 || b.Length == 0)
+                return false;
+
+            int at = a.LastIndexOfAny(new[] { ':', '.' });
+            int bt = b.LastIndexOfAny(new[] { ':', '.' });
+            if (at < 0 || bt < 0)
+                return false;
+            return string.Equals(
+                a.Substring(0, at),
+                b.Substring(0, bt),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string Normalize(string value)
+        {
+            return value == null ? string.Empty : Regex.Replace(value.Trim(), @"\s+", " ");
+        }
+
+        public static ScriptureRequest BuildTarget(ActiveReferenceState state, ScriptureDetection detection)
+        {
+            if (state == null || detection == null)
+                return null;
+
+            // A confirmed later verse of the same chapter outranks an earlier
+            // partial guess, so a corrected reference does not leave the stale
+            // one pre-filled.
+            ScriptureDetection confirmed = state.Confirmed;
+            if (confirmed != null && confirmed.Verse > 0 && !confirmed.RequiresReview &&
+                string.Equals(confirmed.Book, detection.Book, StringComparison.OrdinalIgnoreCase) &&
+                confirmed.Chapter == detection.Chapter && confirmed.Verse > detection.Verse)
+            {
+                ScriptureRequest better = new ScriptureRequest();
+                better.Book = confirmed.Book;
+                better.Chapter = confirmed.Chapter;
+                better.Verse = confirmed.Verse;
+                return better;
+            }
+
+            bool chapterCall =
+                string.Equals(detection.EvidenceKind, "explicit", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(detection.EvidenceKind, "contextual", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(detection.EvidenceKind, "navigation", StringComparison.OrdinalIgnoreCase);
+            if (!chapterCall || string.IsNullOrEmpty(detection.Book) || detection.Chapter <= 0)
+                return null;
+
+            ScriptureRequest request = new ScriptureRequest();
+            request.Book = detection.Book;
+            request.Chapter = detection.Chapter;
+            // A chapter-only mention pre-fills verse 1, which is shown but is not
+            // presented until a verse is called.
+            request.Verse = detection.Verse > 0 ? detection.Verse : 1;
+            return request;
+        }
+
+        public static Decision Plan(
+            ActiveReferenceState state,
+            ScriptureDetection detection,
+            Memory memory,
+            bool operatorTouchedTarget,
+            bool listening,
+            bool otherWorkInFlight,
+            bool liveEligible,
+            bool automaticLiveArmed,
+            double secondsSinceExternalInput)
+        {
+            Decision none = new Decision();
+            if (memory == null || detection == null || !listening)
+                return none;
+            // Anything the operator must review is never pre-filled, whatever
+            // called us. Enforced here so the invariant cannot be lost by a
+            // caller that forgets to filter.
+            if (detection.RequiresReview)
+                return none;
+            // An operator action always outranks the machine, even mid-send.
+            if (operatorTouchedTarget || otherWorkInFlight)
+                return none;
+            // The operator has recently been working in the presentation
+            // application itself, so the target is theirs until they stop.
+            if (secondsSinceExternalInput < OperatorStandDownSeconds)
+                return none;
+
+            ScriptureRequest target = BuildTarget(state, detection);
+            if (target == null)
+                return none;
+
+            string key = Key(target);
+            if (key == memory.FailedKey || key == memory.LiveKey)
+                return none;
+            if (memory.LastPrepared != null &&
+                string.Equals(Key(memory.LastPrepared), key, StringComparison.OrdinalIgnoreCase))
+                return none;
+            // Pre-filling a reference that is about to be sent would fight the
+            // send, so stand down when that reference is the one going live.
+            if (liveEligible && automaticLiveArmed &&
+                string.Equals(target.ReferenceText, detection.ReferenceText, StringComparison.OrdinalIgnoreCase))
+                return none;
+
+            none.Prepare = true;
+            none.Target = target;
+            return none;
+        }
+    }
+
+    // The operator's autonomy setting. Three named levels, not a percentage: the
+    // scores the product holds (cosine, reranker logit, parser confidence) are
+    // different scales and none is a calibrated probability, so a numeric dial
+    // could not be built, tested or explained. A level widens which evidence the
+    // machine will act on; it is never a general lowering of certainty. See the
+    // approved plan in EXECUTION_PLAN.md. No fourth "Full Auto" level exists:
+    // resolving ambiguity by best guess is the failure this product avoids.
+    internal enum AutonomyLevel { Observe = 0, Assist = 1, Auto = 2 }
+
+    internal static class AutonomyPolicy
+    {
+        // Assist is auto prepare on, auto live off (product-owner decision).
+        public static bool Prefill(AutonomyLevel level) { return level >= AutonomyLevel.Assist; }
+        public static bool AutoPrepare(AutonomyLevel level) { return level >= AutonomyLevel.Assist; }
+        public static bool AutomaticLive(AutonomyLevel level) { return level >= AutonomyLevel.Auto; }
+
+        public static string Label(AutonomyLevel level)
+        {
+            switch (level)
+            {
+                case AutonomyLevel.Assist: return "Assist";
+                case AutonomyLevel.Auto: return "Auto";
+                default: return "Observe";
+            }
+        }
+
+        public static string Description(AutonomyLevel level)
+        {
+            switch (level)
+            {
+                case AutonomyLevel.Assist:
+                    return "Fills the reference as you speak, and prepares a clear reference when you press Prepare. Nothing goes live without you.";
+                case AutonomyLevel.Auto:
+                    return "Fills the reference as you speak, prepares clear references, and presents a complete spoken reference automatically. Chapter-only calls stay held until a verse is called.";
+                default:
+                    return "Gazely detects and shows suggestions only. You prepare and present everything.";
+            }
+        }
+
+        // Guards the tail of the level. An unavailable capability must not be
+        // silently granted, so a level is capped rather than reduced to Ignore:
+        // asking for Auto without automatic-live permission lands on Assist.
+        public static AutonomyLevel Cap(AutonomyLevel requested, bool canPrefill, bool canPrepare, bool canLive)
+        {
+            AutonomyLevel capped = AutonomyLevel.Observe;
+            if (canPrefill || canPrepare)
+                capped = AutonomyLevel.Assist;
+            if (capped == AutonomyLevel.Assist && canLive)
+                capped = AutonomyLevel.Auto;
+            return requested < capped ? requested : capped;
+        }
+
+        // The effective level after both the operator's choice and the capability
+        // guard, so every automation decision reads one value.
+        public static AutonomyLevel Effective(AutonomyLevel requested, bool canPrefill, bool canPrepare, bool canLive)
+        {
+            return Cap(requested, canPrefill, canPrepare, canLive);
+        }
+    }
+
+    // Decides what "give me that scripture!" promotes. The preacher quoted
+    // something and now wants it on screen without naming it, so the machine must
+    // choose among quotes it already holds. The choice is the highest matched, not
+    // the newest: a weak quote should not win merely by arriving last. Two quotes
+    // that tie are never resolved automatically — a human operator would look, and
+    // so does Gazely, by leaving the choice to the operator.
+    //
+    // Recognising the request is PlanDirectives.IsQuotePromotion. This type only
+    // picks the candidate, so it is deterministic and testable on its own.
+    internal static class QuotePromotionPolicy
+    {
+        // "The scripture he just quoted" reaches back no further than the existing
+        // quotation scope, so this reuses that idea rather than adding a second
+        // timer. Beyond it, a quotation is no longer what "that scripture" means.
+        public const double WindowSeconds = 90;
+
+        // Two candidates closer than this are a genuine tie.
+        public const double TieMargin = 0.02;
+
+        // Chooses the quote to promote, or null when nothing should be. Only
+        // literal quotations are eligible: paraphrases rest on similarity alone,
+        // which is the weakest evidence the product holds, and a spoken directive
+        // must not be what finally puts one on screen.
+        public static ScriptureDetection Choose(IEnumerable<ScriptureDetection> held, DateTime nowUtc, out string reason)
+        {
+            reason = string.Empty;
+            if (held == null) { reason = "No quotations are being held."; return null; }
+
+            ScriptureDetection best = null;
+            double bestScore = double.MinValue, secondScore = double.MinValue;
+            int eligible = 0;
+            foreach (ScriptureDetection detection in held)
+            {
+                if (detection == null) continue;
+                if (!string.Equals(detection.EvidenceKind, "quotation", StringComparison.OrdinalIgnoreCase)) continue;
+                if (detection.RequiresReview && detection.MatchScore <= 0) continue;
+                if (detection.MatchScore <= 0) continue;
+                eligible++;
+                double score = detection.MatchScore;
+                if (score > bestScore) { secondScore = bestScore; bestScore = score; best = detection; }
+                else if (score > secondScore) secondScore = score;
+            }
+
+            if (eligible == 0 || best == null) { reason = "No quoted scripture is being held."; return null; }
+            if (eligible >= 2 && bestScore - secondScore < TieMargin)
+            {
+                reason = "Two quoted scriptures match equally closely; choose one yourself.";
+                return null;
+            }
+            reason = "Promoted the closest held quotation.";
+            return best;
         }
     }
 
@@ -4263,6 +4585,10 @@ namespace EasyWorshipControllerMvp
         private Button liveDetectedButton;
         private CheckBox autoPreviewCheck;
         private CheckBox autoLiveCheck;
+        private GroupBox detectedGroup;
+        private ComboBox autonomyCombo;
+        private Label autonomyHint;
+        private bool syncingAutonomy;
 
         private WaveInRecorder audioRecorder;
         private BlockingAudioStream speechStream;
@@ -4556,6 +4882,26 @@ namespace EasyWorshipControllerMvp
             connectionTimer.Tick += delegate { RefreshConnection(); };
             connectionTimer.Start();
 
+            // Speculation drives the real automation. Any external input proves the
+            // operator is using EasyWorship directly, so the next tick stands down.
+            speculationSurface = new AutomationSpeculationSurface(automation);
+            detectionWatcher = new System.Windows.Forms.Timer();
+            detectionWatcher.Interval = 120;
+            detectionWatcher.Tick += delegate
+            {
+                if (GetForegroundWindow() != lastEasyWorshipWindow)
+                {
+                    lastEasyWorshipWindow = GetForegroundWindow();
+                    lastExternalInputUtc = DateTime.UtcNow;
+                }
+                if (lastKeyboardInputTime != lastKeyboardInputStamp)
+                {
+                    lastKeyboardInputStamp = lastKeyboardInputTime;
+                    lastExternalInputUtc = DateTime.UtcNow;
+                }
+            };
+            detectionWatcher.Start();
+
             FormClosing += delegate
             {
                 closingApplication=true;
@@ -4563,6 +4909,7 @@ namespace EasyWorshipControllerMvp
                 SaveWorkspacePreferences();
                 StopListening();
                 cloudUsageTimer.Stop();cloudUsageTimer.Dispose();
+                if(detectionWatcher!=null){detectionWatcher.Stop();detectionWatcher.Dispose();}
                 whisperEngine.Stop();
                 lock(quotationJobs){quotationJobs.Clear();}
                 semanticSearch.Dispose();
@@ -4657,6 +5004,9 @@ namespace EasyWorshipControllerMvp
         {
             if(presentationRunning) { AddLog("A presentation command is already running."); return; }
             if(!destination.Enabled) { presentationStatus.Text="Enable EasyWorship 7 in Settings / Integrations first."; AddLog(presentationStatus.Text); return; }
+            // A presented reference is never pre-filled again; the operator and the
+            // machine have already moved past it.
+            if(goLive && request!=null) speculation.NoteLive(request);
             PresentationIntent intent=new PresentationIntent(Guid.NewGuid().ToString("N"),request,goLive,changeVersion,version,index,automatic);
             presentationRunning=true;SetBusy(true);
             // Let the existing adapter reach its controls even when the overlay
@@ -4929,7 +5279,7 @@ namespace EasyWorshipControllerMvp
             transcriptTextBox.Font = new Font("Segoe UI", 10);
             audioTab.Controls.Add(transcriptTextBox);
 
-            GroupBox detectedGroup = new GroupBox();
+            detectedGroup = new GroupBox();
             detectedGroup.Text = "DETECTED SCRIPTURE";
             detectedGroup.Left = 24;
             detectedGroup.Top = 515;
@@ -4995,11 +5345,23 @@ namespace EasyWorshipControllerMvp
             liveDetectedButton.Click += delegate { RunDetected(true); };
             detectedGroup.Controls.Add(liveDetectedButton);
 
+            // The two checkboxes remain as mirrors of the autonomy level rather
+            // than as independent settings. Every automation decision reads
+            // EffectiveAutonomy; these exist so the existing preference keys, the
+            // Mini overlay and the suite's expectations keep working, and so a
+            // capability guard can cap what the level grants.
             autoPreviewCheck = new GazelyToggle();
             autoPreviewCheck.Text = "Automatically prepare clear scripture detections";
             autoPreviewCheck.Left = 535;
             autoPreviewCheck.Top = 78;
             autoPreviewCheck.Width = 270;
+            autoPreviewCheck.CheckedChanged += delegate
+            {
+                if (restoringPreferences || syncingAutonomy) return;
+                SetAutonomy(autoLiveCheck != null && autoLiveCheck.Checked
+                    ? AutonomyLevel.Auto
+                    : (autoPreviewCheck.Checked ? AutonomyLevel.Assist : AutonomyLevel.Observe));
+            };
             detectedGroup.Controls.Add(autoPreviewCheck);
 
             autoLiveCheck = new GazelyToggle();
@@ -5011,15 +5373,15 @@ namespace EasyWorshipControllerMvp
             autoLiveCheck.Font = new Font(Font.FontFamily, 9, FontStyle.Bold);
             autoLiveCheck.CheckedChanged += delegate
             {
-                if(restoringPreferences)return;
+                if(restoringPreferences || syncingAutonomy)return;
                 if (autoLiveCheck.Checked)
                 {
                     if(!cloudAccess.CanAutomaticLive){autoLiveCheck.Checked=false;SelectPage("account");return;}
                     DialogResult result = MessageBox.Show(
                         this,
-                        "Automatic Live mode can put a clearly detected scripture on screen without asking you first.\r\n\r\n" +
+                        "Auto level can put a clearly detected scripture on screen without asking you first.\r\n\r\n" +
                         "Keep this OFF until you trust the detections during real sermon audio. Turn it on now?",
-                        "Automatic Live mode",
+                        "Automatic Live",
                         MessageBoxButtons.YesNo,
                         MessageBoxIcon.Warning);
 
@@ -5028,9 +5390,9 @@ namespace EasyWorshipControllerMvp
                         autoLiveCheck.Checked = false;
                         return;
                     }
-
-                    autoPreviewCheck.Checked = false;
                 }
+                SetAutonomy(autoLiveCheck.Checked ? AutonomyLevel.Auto
+                    : (autoPreviewCheck.Checked ? AutonomyLevel.Assist : AutonomyLevel.Observe));
             };
             detectedGroup.Controls.Add(autoLiveCheck);
 
@@ -5108,7 +5470,7 @@ namespace EasyWorshipControllerMvp
         {
             referenceRefinement.Reset();
             activeReference.Release();passagePolicy.Reset();followingQuotation=false;quoteSwitchRevision=-1;quoteScopeBook=null;quoteScopeChapter=0;
-            operatorDraft=false;SetDraft(string.Empty,0,0,0);UpdateVerseExcerpt(null);
+            operatorDraft=false;operatorTyping=false;SetDraft(string.Empty,0,0,0);UpdateVerseExcerpt(null);
             lastChapterRecovery=null;lastChapterRecoverySource=string.Empty;
             ++interpretationRevision;
             quotationContext.Reset();
@@ -6028,6 +6390,307 @@ namespace EasyWorshipControllerMvp
                 0);
         }
 
+        // Shell-facing seam so the decision can be exercised without a real
+        // EasyWorship target. Mirrors the EasyWorshipAutomation members used.
+        private interface ISpeculationSurface
+        {
+            bool IsAttached();
+            bool TryPrepare(ScriptureRequest request, out string observed);
+        }
+
+        private sealed class AutomationSpeculationSurface : ISpeculationSurface
+        {
+            private readonly EasyWorshipAutomation automation;
+            public AutomationSpeculationSurface(EasyWorshipAutomation automation) { this.automation = automation; }
+            public bool IsAttached()
+            {
+                try { return automation.IsConnected(); }
+                catch { return false; }
+            }
+            public bool TryPrepare(ScriptureRequest request, out string observed)
+            {
+                observed = string.Empty;
+                try
+                {
+                    observed = automation.ShowScripture(request, false, null, 0, false);
+                    return true;
+                }
+                catch { return false; }
+            }
+        }
+
+        // An operator action outranks the machine. While the operator has an edit
+        // held, is choosing a history row, or has focus or the pointer inside the
+        // workspace draft fields, speculation stands down and never fights them.
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")]
+        private static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
+        private struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+        // Ticks of the last keyboard or mouse input on this desktop. Used only to
+        // notice that the operator is working in EasyWorship directly.
+        private static uint lastKeyboardInputTime
+        {
+            get
+            {
+                LASTINPUTINFO info = new LASTINPUTINFO();
+                info.cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO));
+                if (!GetLastInputInfo(ref info))
+                    return 0;
+                return info.dwTime;
+            }
+        }
+
+        private bool operatorTouchedTarget
+        {
+            get
+            {
+                if (operatorDraft || selectingHistory)
+                    return true;
+
+                Form target = ActiveForm;
+                if (target == null)
+                    return false;
+                Control focused = null;
+                try { focused = FindFocusedControl(target); }
+                catch { }
+                if (focused != null && (focused == draftBook || focused == draftChapter || focused == draftVerse))
+                    return true;
+
+                Point cursor = Cursor.Position;
+                return OverControl(draftBook, cursor) || OverControl(draftChapter, cursor) || OverControl(draftVerse, cursor);
+            }
+        }
+
+        private static Control FindFocusedControl(Control parent)
+        {
+            if (parent == null)
+                return null;
+            ContainerControl container = parent as ContainerControl;
+            while (container != null && container.ActiveControl is ContainerControl)
+                container = container.ActiveControl as ContainerControl;
+            return container == null ? null : container.ActiveControl;
+        }
+
+        private static bool OverControl(Control control, Point screenPoint)
+        {
+            if (control == null || !control.Visible)
+                return false;
+            Point local = control.PointToClient(screenPoint);
+            return control.ClientRectangle.Contains(local);
+        }
+
+        // Feeds one final utterance into the scripture plan. An announcement adds
+        // members; an activation marks which one is being read; a deictic
+        // reference ("the next one I called in Psalms", "the final scripture")
+        // resolves against the plan and is offered like any other detection, so it
+        // passes through the same review and automation rules.
+        private ScriptureDetection planLastResolution;
+        private void FeedScripturePlan(string text, SpeechChunk chunk)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+            long utteranceId = chunk == null ? -1 : chunk.UtteranceId;
+            if (utteranceId >= 0 && utteranceId == planFedUtteranceId) return;
+            planFedUtteranceId = utteranceId;
+            if (planStartedUtc == DateTime.MinValue) planStartedUtc = DateTime.UtcNow;
+
+            try
+            {
+                // "Give me that scripture!" surfaces the passage just quoted, which
+                // the operator directs rather than the machine deciding. It follows
+                // the same review path as an operator choosing an alternative, so a
+                // promoted quote is never silently live.
+                if (PlanDirectives.IsQuotePromotion(text))
+                {
+                    string reason;
+                    ScriptureDetection promoted = QuotePromotionPolicy.Choose(passageAlternatives, DateTime.UtcNow, out reason);
+                    if (promoted != null)
+                    {
+                        AddLog("Quote promotion: " + promoted.ReferenceText + " — " + reason);
+                        SelectPassageAlternative(promoted);
+                    }
+                    else
+                    {
+                        AddLog("Quote promotion requested but nothing was promoted: " + reason);
+                        if (draftStatus != null) draftStatus.Text = reason;
+                    }
+                    return;
+                }
+
+                // Section boundary: total silence ends the section, so a later "the
+                // next one I called" cannot resolve against a stale set.
+                double sinceSpeech = lastSpeechDetectionUtc == DateTime.MinValue
+                    ? 0
+                    : (DateTime.UtcNow - lastSpeechDetectionUtc).TotalSeconds;
+                if (PlanLifecycle.Expired(sinceSpeech))
+                {
+                    AddLog("Scripture plan expired after " + (int)sinceSpeech + "s without speech.");
+                    ResetScripturePlan(PlanBoundary.Silence);
+                    return;
+                }
+
+                // A deictic reference resolves against what has been announced.
+                PlanOrdinal ordinal; string bookConstraint;
+                if (PlanDirectives.TryResolveReference(text, out ordinal, out bookConstraint))
+                {
+                    PlannedScripture resolved = scripturePlan.Resolve(ordinal, MatchPlanBook(bookConstraint));
+                    if (resolved != null)
+                    {
+                        ScriptureDetection viaPlan = new ScriptureDetection();
+                        viaPlan.Book = resolved.Book; viaPlan.Chapter = resolved.Chapter;
+                        viaPlan.Verse = resolved.Verse; viaPlan.VerseEnd = resolved.VerseEnd;
+                        viaPlan.EvidenceKind = "plan"; viaPlan.RequiresReview = false;
+                        viaPlan.Confidence = 0.90; viaPlan.SourceText = text;
+                        viaPlan.Reason = "Resolved from the announced scripture plan. Review wording before presenting.";
+                        planLastResolution = viaPlan;
+                        AddLog("Plan resolved " + viaPlan.ReferenceText + " from the announced set.");
+                        ShowDetection(viaPlan);
+                        return;
+                    }
+                    AddLog("Plan reference could not be resolved unambiguously; nothing was selected.");
+                    return;
+                }
+
+                // An announcement adds every reference mentioned in the utterance.
+                List<ScriptureDetection> mentioned = new ScriptureDetector().FindMentionedReferences(text);
+                if (mentioned.Count > 0)
+                {
+                    // A newly declared count is an explicit announcement of a new
+                    // set, so it starts one rather than appending to the old.
+                    int declared = PlanDirectives.DeclaredCount(text);
+                    if (PlanLifecycle.StartsNewSection(declared, !scripturePlan.Empty))
+                    {
+                        AddLog("New scripture section declared (" + declared + "); previous plan cleared.");
+                        ResetScripturePlan(PlanBoundary.NewSection);
+                    }
+
+                    bool activation = PlanDirectives.IsActivation(text);
+                    foreach (ScriptureDetection detection in mentioned)
+                    {
+                        if (detection.Verse <= 0) continue;
+                        scripturePlan.Add(detection.Book, detection.Chapter, detection.Verse, detection.VerseEnd, false);
+                    }
+                    if (PlanLifecycle.ExceedsCapacity(scripturePlan.Count))
+                    {
+                        AddLog("Scripture plan exceeded " + PlanLifecycle.MaximumMembers + " members; cleared.");
+                        ResetScripturePlan(PlanBoundary.Capacity);
+                        return;
+                    }
+                    // Only a directive frame activates. A bare enumeration leaves
+                    // every member unread, which is the reported behaviour: the
+                    // machine must not walk through announced scriptures one by one.
+                    if (activation)
+                    {
+                        ScriptureDetection chosen = mentioned[mentioned.Count - 1];
+                        scripturePlan.Activate(chosen.Book, chosen.Chapter, chosen.Verse);
+                        AddLog("Plan active: " + chosen.ReferenceText + " of " + scripturePlan.Count + " announced.");
+                    }
+                    else
+                    {
+                        AddLog("Plan announced " + scripturePlan.Count + " scripture(s); none activated.");
+                    }
+                    RefreshPlanStrip();
+                }
+            }
+            catch (Exception ex) { AddLog("Scripture plan update failed: " + ex.Message); }
+        }
+
+        // A spoken book constraint may be a partial name ("Psalms", "Psalm"), so it
+        // only counts when it identifies one plan book unambiguously.
+        private string MatchPlanBook(string spoken)
+        {
+            if (string.IsNullOrWhiteSpace(spoken)) return string.Empty;
+            string found = null;
+            foreach (PlannedScripture item in scripturePlan.Items)
+            {
+                if (item.Book.StartsWith(spoken, StringComparison.OrdinalIgnoreCase) ||
+                    spoken.StartsWith(item.Book, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (found == null) found = item.Book;
+                    else if (!string.Equals(found, item.Book, StringComparison.OrdinalIgnoreCase)) return string.Empty;
+                }
+            }
+            return found ?? string.Empty;
+        }
+
+        // The plan strip is an operator aid: it shows what has been announced and
+        // which member is active. It is a label, never a control, so it cannot be
+        // clicked into producing an action.
+        private Label planStrip;
+        // Clears the plan at an explicit boundary and says why, so an operator is
+        // never left wondering why a deictic reference stopped resolving.
+        private string planBoundaryNote=string.Empty;
+        private void ResetScripturePlan(PlanBoundary boundary)
+        {
+            scripturePlan.Reset();
+            planStartedUtc=DateTime.MinValue;
+            switch (boundary)
+            {
+                case PlanBoundary.Silence: planBoundaryNote="Previous list cleared after a long silence."; break;
+                case PlanBoundary.NewSection: planBoundaryNote="New list started."; break;
+                case PlanBoundary.Capacity: planBoundaryNote="Previous list was too long and was cleared."; break;
+                case PlanBoundary.Manual: planBoundaryNote="List cleared."; break;
+                default: planBoundaryNote=string.Empty; break;
+            }
+            RefreshPlanStrip();
+        }
+        private void RefreshPlanStrip()
+        {
+            if (planStrip == null) return;
+            try
+            {
+                planStrip.Text = scripturePlan.Empty
+                    ? (planBoundaryNote.Length > 0 ? planBoundaryNote : "No scriptures announced yet.")
+                    : scripturePlan.Summary();
+            }
+            catch { }
+        }
+
+        private void OfferSpeculation(ScriptureDetection detection, bool liveEligible, bool automaticLiveArmed)
+        {
+            if (!useNativeStreaming && !useLocalAi)
+                return;
+
+            bool otherWorkInFlight = startingListening || drainingStreaming ||
+                presentationRunning || failoverInProgress != 0;
+            SpeculationPolicy.Decision decision = SpeculationPolicy.Plan(
+                activeReference,
+                detection,
+                speculation,
+                operatorTouchedTarget,
+                audioListening,
+                otherWorkInFlight,
+                liveEligible,
+                automaticLiveArmed,
+                (DateTime.UtcNow - lastExternalInputUtc).TotalSeconds);
+            if (!decision.Prepare)
+                return;
+
+            ISpeculationSurface surface = speculationSurface;
+            if (surface == null || !surface.IsAttached())
+                return;
+
+            ScriptureRequest target = decision.Target;
+            // Version movement is deliberately not speculated. Selection stays the
+            // operator's until a send actually needs the version.
+            BeginInvoke((MethodInvoker)delegate
+            {
+                if(!audioListening || operatorTouchedTarget)return;
+                string observed;
+                bool ok = surface.TryPrepare(target, out observed);
+                if (ok)
+                {
+                    speculation.NotePrepared(target);
+                    AddLog("Speculation prepared " + target.ReferenceText + " before the verse was called.");
+                }
+                else
+                {
+                    speculation.NoteFailed(target);
+                    AddLog("Speculation skipped: " + target.ReferenceText + " could not be pre-filled.");
+                }
+            });
+        }
+
         private void OnFinalTranscript(
             string text,
             double confidence,
@@ -6059,6 +6722,7 @@ namespace EasyWorshipControllerMvp
                     }
 
                     long revision = ++interpretationRevision;
+                    FeedScripturePlan(clean, chunk);
                     finalAudioStart=chunk==null?0:chunk.AudioStartSample;finalAudioEnd=chunk==null?0:chunk.AudioEndSample;
                     historyEventKey=chunk==null?session+":final:"+revision:session+":"+chunk.UtteranceId;
                     FinishHistoryCandidate(historyEventKey);
@@ -6127,8 +6791,11 @@ namespace EasyWorshipControllerMvp
                     if(operatorDraft)
                     {
                         // A complete spoken reference takes the main passage even
-                        // after an operator-selected quote, history row or draft.
-                        if(detection!=null && detection.Verse>0 &&
+                        // after an operator-selected quote, history row or draft —
+                        // except while the operator is actively typing in the
+                        // reference fields, where replacing their keystrokes would
+                        // be hostile. See operatorTyping.
+                        if(!operatorTyping && detection!=null && detection.Verse>0 &&
                             (detection.EvidenceKind=="explicit" || detection.EvidenceKind=="correction" || detection.EvidenceKind=="contextual" || detection.EvidenceKind=="navigation"))
                         {
                             if(lastDetection!=null)RememberPreviousPassage(detection);
@@ -6210,6 +6877,36 @@ namespace EasyWorshipControllerMvp
         private DateTime quoteScopeUtc=DateTime.MinValue;
         private readonly ActiveReferenceState activeReference=new ActiveReferenceState();
         private readonly PassageSelectionPolicy passagePolicy=new PassageSelectionPolicy();
+        // Speculation state: what has been pre-filled, what failed, and what has
+        // already gone live, so pre-filling never repeats or fights a send.
+        private readonly SpeculationPolicy.Memory speculation=new SpeculationPolicy.Memory();
+        // The ordered set of scriptures announced in this sermon section, and the
+        // utterance that last fed it, so re-processing the same final cannot
+        // duplicate entries.
+        private readonly ScripturePlan scripturePlan=new ScripturePlan();
+        private long planFedUtteranceId=-1;
+        private DateTime planStartedUtc=DateTime.MinValue;
+        // The operator's chosen autonomy level. Persisted under the existing
+        // autoLive/autoPrepare keys, so an existing installation restores without
+        // a migration; the level is derived from them at load.
+        private AutonomyLevel useAutoLevel=AutonomyLevel.Observe;
+        internal AutonomyLevel EffectiveAutonomy
+        {
+            get
+            {
+                return AutonomyPolicy.Effective(
+                    useAutoLevel,
+                    cloudAccess.CanAutoPrepare,
+                    cloudAccess.CanAutoPrepare,
+                    cloudAccess.CanAutomaticLive);
+            }
+        }
+        private ISpeculationSurface speculationSurface;
+        private DateTime lastAutomationActionUtc=DateTime.MinValue;
+        private readonly System.Windows.Forms.Timer detectionWatcher;
+        private IntPtr lastEasyWorshipWindow=IntPtr.Zero;
+        private uint lastKeyboardInputStamp;
+        private DateTime lastExternalInputUtc=DateTime.MinValue;
         private long finalAudioStart,finalAudioEnd;
         private bool followingQuotation;
         private long quoteSwitchRevision=-1;
@@ -6445,6 +7142,16 @@ namespace EasyWorshipControllerMvp
 
             if (!selectingHistory && SpeechPresentationPolicy.CanPreview(detection))
                 MaybeAutoRunDetection(detection);
+
+            // Pre-fill only follows a stable reference. A provisional detection is
+            // never speculated, which also keeps this off the partial-text path.
+            // Pre-filling belongs to Assist and Auto; Observe never touches the
+            // target application.
+            AutonomyLevel level = EffectiveAutonomy;
+            if (AutonomyPolicy.Prefill(level) && !detection.RequiresReview && detection.Verse > 0)
+                OfferSpeculation(detection,
+                    SpeechPresentationPolicy.CanAutomate(detection),
+                    AutonomyPolicy.AutomaticLive(level));
         }
 
         private void MaybeAutoRunDetection(
@@ -6452,13 +7159,12 @@ namespace EasyWorshipControllerMvp
         {
             if(startingListening || drainingStreaming)return;
             if(operatorDraft)return;
-            bool canLive=autoLiveCheck.Checked && cloudAccess.CanAutomaticLive && SpeechPresentationPolicy.CanAutomate(detection);
-            bool canPreview=autoPreviewCheck.Checked && cloudAccess.CanAutoPrepare && SpeechPresentationPolicy.CanPreview(detection);
+            AutonomyLevel level=EffectiveAutonomy;
+            bool canLive=AutonomyPolicy.AutomaticLive(level) && SpeechPresentationPolicy.CanAutomate(detection);
+            bool canPreview=AutonomyPolicy.AutoPrepare(level) && SpeechPresentationPolicy.CanPreview(detection);
+            if(canLive)lastAutomationActionUtc=DateTime.UtcNow;
             if(!canLive && !canPreview)return;
             if(presentationRunning || !destination.Enabled) return;
-            if (!autoPreviewCheck.Checked &&
-                !autoLiveCheck.Checked)
-                return;
 
             DateTime now =
                 DateTime.UtcNow;
@@ -6479,6 +7185,7 @@ namespace EasyWorshipControllerMvp
                 actionSignature;
             lastAutoActionUtc =
                 now;
+            lastAutomationActionUtc = now;
 
             if (canLive)
                 RunDetected(true,true);
@@ -6989,6 +7696,93 @@ namespace EasyWorshipControllerMvp
             if(parsed==null) return false;
             request = new ScriptureRequest { Book=parsed.Book,Chapter=parsed.Chapter,Verse=parsed.Verse,VerseEnd=parsed.VerseEnd };
             return true;
+        }
+
+        // The autonomy control as one workspace row: the named level, then a plain
+        // description of what it does. Built here so GazelyInterface only has to
+        // add the row, and the controls stay owned by MainForm like the rest.
+        private Control BuildAutonomyRow()
+        {
+            TableLayoutPanel row = new TableLayoutPanel();
+            row.Dock = DockStyle.Fill;
+            row.Margin = new Padding(0);
+            row.ColumnCount = 2;
+            row.RowCount = 1;
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            autonomyCombo = new ComboBox();
+            autonomyCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+            autonomyCombo.Dock = DockStyle.Fill;
+            autonomyCombo.Margin = new Padding(0, 4, 8, 4);
+            autonomyCombo.Items.AddRange(new object[] { "Observe", "Assist", "Auto" });
+            autonomyCombo.SelectedIndexChanged += delegate
+            {
+                if (restoringPreferences || syncingAutonomy) return;
+                SetAutonomy((AutonomyLevel)autonomyCombo.SelectedIndex);
+            };
+            row.Controls.Add(autonomyCombo, 0, 0);
+
+            autonomyHint = new Label();
+            autonomyHint.Dock = DockStyle.Fill;
+            autonomyHint.AutoSize = false;
+            autonomyHint.ForeColor = GazelyTheme.Muted;
+            autonomyHint.Font = new Font(Font.FontFamily, 8F);
+            autonomyHint.TextAlign = ContentAlignment.MiddleLeft;
+            row.Controls.Add(autonomyHint, 1, 0);
+
+            Label caption = new Label();
+            caption.Text = "AUTONOMY";
+            caption.Font = new Font(Font.FontFamily, 8F, FontStyle.Bold);
+            caption.ForeColor = GazelyTheme.Muted;
+            caption.Dock = DockStyle.Fill;
+            caption.TextAlign = ContentAlignment.MiddleLeft;
+
+            TableLayoutPanel outer = new TableLayoutPanel();
+            outer.Dock = DockStyle.Fill;
+            outer.Margin = new Padding(0);
+            outer.ColumnCount = 1;
+            outer.RowCount = 2;
+            outer.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));
+            outer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            outer.Controls.Add(caption, 0, 0);
+            outer.Controls.Add(row, 0, 1);
+            return outer;
+        }
+
+        // Applies a chosen level, mirrors it onto the two checkboxes the rest of
+        // the application and the preference file already understand, and refuses
+        // to grant more than the licence allows. Saving is opt-in: construction
+        // and preference restore must not write back, or a restored level would
+        // be overwritten by the default before it is read.
+        internal void SetAutonomy(AutonomyLevel requested) { ApplyAutonomy(requested, true); }
+
+        private void ApplyAutonomy(AutonomyLevel requested, bool save)
+        {
+            AutonomyLevel level = AutonomyPolicy.Effective(
+                requested,
+                cloudAccess.CanAutoPrepare,
+                cloudAccess.CanAutoPrepare,
+                cloudAccess.CanAutomaticLive);
+            useAutoLevel = level;
+
+            syncingAutonomy = true;
+            try
+            {
+                if (autonomyCombo != null && autonomyCombo.SelectedIndex != (int)level)
+                    autonomyCombo.SelectedIndex = (int)level;
+                // Auto keeps prepare on as well: quotes stay preview-only, and the
+                // chapter-only hold is what keeps a verse-1 guess off screen.
+                if (autoPreviewCheck != null)
+                    autoPreviewCheck.Checked = AutonomyPolicy.AutoPrepare(level);
+                if (autoLiveCheck != null)
+                    autoLiveCheck.Checked = AutonomyPolicy.AutomaticLive(level);
+                if (autonomyHint != null)
+                    autonomyHint.Text = AutonomyPolicy.Description(level);
+            }
+            finally { syncingAutonomy = false; }
+
+            if (save) SaveWorkspacePreferences();
         }
 
         private void SetBusy(bool busy)

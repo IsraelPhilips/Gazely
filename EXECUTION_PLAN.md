@@ -112,6 +112,32 @@ measured number, not a feeling.
 | 4 | Scripture plan, focus stack, plan strip, deictics, "give me that scripture" | parser, policy, UI |
 | 5 | Fixtures, suites, docs | extend, do not replace |
 
+### Phase 4 additions — book correction must survive garbled speech
+
+Operator-reported on 14 November from
+`Sample 2 - PJoe Malachi-Micah.mp3`. The preacher says "give me Malachi 4:1 …
+no, Micah" and, as a human would, does **not** repeat the chapter and verse.
+
+Book correction that inherits the chapter and verse already exists
+(`TryBookCorrection`, `EvidenceKind="correction"`, induced by "no / sorry /
+correction / i mean / rather"). It does not work on this recording, for three
+separate reasons that must all be addressed:
+
+1. **The book alias is exact.** `AddBook("Micah","micah")` is the only alias, but
+   the ASR produced `mica`, `my lagai` and `no mica mica` for this speaker. No
+   alias matches, so the correction is rejected outright.
+2. **No phonetic book resolution.** Chapter numbers already have bounded phonetic
+   recovery in `ChapterPronunciationRecovery.cs`. Book names have no equivalent,
+   even though this is the same class of problem and the same mechanism applies.
+3. **Filler between the cue and the book breaks the anchor.** The matcher accepts
+   only `^(?:alias\s*)+$` after the cue, so "no, I mean, give me Micah" cannot
+   match. Real speech inserts filler here.
+
+This is a recognition-and-resolution problem, not a discourse one, and it belongs
+to the same "small model or bounded phonetic method, never a generative model on
+the live path" rule as the rest of this plan. A corrected book stays
+review-required and never inherits automatic permission.
+
 UI/UX is prioritized within phases 3–4: the autonomy control and the plan strip
 are the surfaces that make autonomy trustworthy. All new UI uses the existing
 WinForms controls (`GazelyTheme`, `GazelyCard`, `GazelyButton`, `GazelyToggle`).

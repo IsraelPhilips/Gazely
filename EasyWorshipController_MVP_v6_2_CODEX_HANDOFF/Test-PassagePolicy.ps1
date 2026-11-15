@@ -1,8 +1,11 @@
 $ErrorActionPreference='Stop'
+Add-Type -AssemblyName System.Speech
 $source=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'EasyWorshipController.cs'))
 $a=$source.IndexOf('    internal sealed class ScriptureDetection')
 $b=$source.IndexOf('    internal sealed class UtteranceSegmenter')
-Add-Type -TypeDefinition ('using System;using System.Collections.Generic;using System.Text;using System.Text.RegularExpressions;'+$source.Substring($a,$b-$a).Replace('internal sealed class','public sealed class'))
+$bookRaw=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'BookPronunciationRecovery.cs')) -replace '(?m)^using [^;]+;\r?\n',''
+$bookSource=$bookRaw.Substring($bookRaw.IndexOf('{')+1,$bookRaw.LastIndexOf('}')-$bookRaw.IndexOf('{')-1)
+Add-Type -TypeDefinition ('using System;using System.Collections.Generic;using System.Text;using System.Text.RegularExpressions;using System.Speech.Synthesis;'+$source.Substring($a,$b-$a).Replace('internal sealed class','public sealed class')+$bookSource) -ReferencedAssemblies ([AppDomain]::CurrentDomain.GetAssemblies()|Where-Object {$_.GetName().Name -eq 'System.Speech'}|Select-Object -First 1).Location
 function Quote([long]$start,[long]$end) {
  $d=New-Object ScriptureDetection
  $d.Book='Matthew';$d.Chapter=6;$d.Verse=33;$d.EvidenceKind='quotation';$d.RequiresReview=$true

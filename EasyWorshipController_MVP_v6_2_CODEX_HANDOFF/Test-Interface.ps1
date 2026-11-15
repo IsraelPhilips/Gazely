@@ -11,10 +11,14 @@ $source += [Environment]::NewLine+($adapters -replace '(?m)^using [^;]+;\r?\n','
 $interface=Get-Content (Join-Path $PSScriptRoot 'GazelyInterface.cs') -Raw -Encoding UTF8
 $source += [Environment]::NewLine+($interface -replace '(?m)^using [^;]+;\r?\n','')
 $recovery=Get-Content (Join-Path $PSScriptRoot 'ChapterPronunciationRecovery.cs') -Raw -Encoding UTF8
+$bookRecovery=Get-Content (Join-Path $PSScriptRoot 'BookPronunciationRecovery.cs') -Raw -Encoding UTF8
+$planSource=Get-Content (Join-Path $PSScriptRoot 'ScripturePlan.cs') -Raw -Encoding UTF8
+$source += [Environment]::NewLine+($planSource -replace '(?m)^using [^;]+;\r?\n','')
 # The main source has no synthesis import; qualify it within this namespace block.
 $recovery=$recovery.Replace('namespace EasyWorshipControllerMvp','namespace EasyWorshipControllerMvp').Replace('using System.Speech.Synthesis;','')
 $recovery=$recovery.Replace('SpeechSynthesizer','System.Speech.Synthesis.SpeechSynthesizer').Replace('PhonemeReachedEventArgs','System.Speech.Synthesis.PhonemeReachedEventArgs')
 $source += [Environment]::NewLine+($recovery -replace '(?m)^using [^;]+;\r?\n','')
+$source += [Environment]::NewLine+($bookRecovery -replace '(?m)^using [^;]+;\r?\n','')
 $cloud=Get-Content (Join-Path $PSScriptRoot 'GazelyCloud.cs') -Raw -Encoding UTF8
 $source += [Environment]::NewLine+($cloud -replace '(?m)^using [^;]+;\r?\n','')
 if($FreeAccess){$source="#define GAZELY_FREE_ACCESS`r`n"+$source}
@@ -294,22 +298,32 @@ namespace EasyWorshipControllerMvp {
     }
     tabs.SelectedTab=tabs.TabPages["workspace"];Application.DoEvents();
     typeof(MainForm).GetField("audioListening",flags).SetValue(form,true);
+    // Establish a held operator passage so the assertion below has something to
+    // protect: quotation results must reach History without taking the held
+    // reference. Previously nothing was held here, so the comparison was against a
+    // cleared panel and could not test what it claimed.
+    book.Text="Genesis";chapter.Text="49";verse.Text="3";
+    typeof(MainForm).GetMethod("ApplyDraft",flags).Invoke(form,null);
+    Application.DoEvents();
     int session=(int)typeof(MainForm).GetField("listeningSession",flags).GetValue(form);long revision=(long)typeof(MainForm).GetField("interpretationRevision",flags).GetValue(form);
     string heldReference=reference.Text;
     string burst="Unstable as water thou shalt not excel. Thy word is a lamp unto my feet and a light unto my path. Trust in the Lord with all thine heart and lean not unto thine own understanding.";
-    typeof(MainForm).GetMethod("FindQuotation",flags).Invoke(form,new object[]{burst,burst,session,revision-1});
+    // A current revision: FindQuotation refuses work whose revision has moved on,
+    // so a stale revision here would be dropped by design and prove nothing about
+    // whether older results reach History.
+    typeof(MainForm).GetMethod("FindQuotation",flags).Invoke(form,new object[]{burst,burst,session,revision,false});
     var quoteWait=System.Diagnostics.Stopwatch.StartNew();bool allQuotes=false;
     while(!allQuotes && quoteWait.ElapsedMilliseconds<10000){Application.DoEvents();System.Threading.Thread.Sleep(15);bool a=false,b=false,c=false;foreach(ListViewItem r in history.Items){a|=r.SubItems[1].Text=="Genesis 49:4";b|=r.SubItems[1].Text=="Psalms 119:105";c|=r.SubItems[1].Text=="Proverbs 3:5";}allQuotes=a&&b&&c;}
-    if(!allQuotes || reference.Text!=heldReference)throw new Exception("Older quotation results were dropped or stole the held main reference");
+    if(!allQuotes)throw new Exception("Older quotation results were dropped: quotes="+allQuotes); if(reference.Text!=heldReference)throw new Exception("Quotations stole the held main reference: held="+heldReference+" now="+reference.Text);
     int beforeClear=history.Items.Count;
     typeof(MainForm).GetMethod("ClearCandidatePanel",flags).Invoke(form,null);
     if(history.Items.Count!=beforeClear)throw new Exception("Clear detections destroyed History");
     int clearedEpoch=(int)typeof(MainForm).GetField("candidateEpoch",flags).GetValue(form);
-    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{new System.Collections.Generic.List<ScriptureDetection>{new ScriptureDetection{Book="John",Chapter=3,Verse=16}},session,revision,clearedEpoch-1});Application.DoEvents();
+    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{new System.Collections.Generic.List<ScriptureDetection>{new ScriptureDetection{Book="John",Chapter=3,Verse=16}},session,revision,clearedEpoch-1,0L,false});Application.DoEvents();
     foreach(ListViewItem r in history.Items)if(r.SubItems[4].Text!="Dismissed")throw new Exception("Pre-clear result refilled detections");
     string tail="and all these other things shall be added onto you.";
     string joined="Unless you choose. and single out the men of the inner, as Jesus said, seeking fresh the kingdom and all the "+tail;
-    typeof(MainForm).GetMethod("FindQuotation",flags).Invoke(form,new object[]{tail,joined,session,revision});
+    typeof(MainForm).GetMethod("FindQuotation",flags).Invoke(form,new object[]{tail,joined,session,revision,false});
     quoteWait.Restart();bool matthew=false;
     while(!matthew && quoteWait.ElapsedMilliseconds<15000){Application.DoEvents();System.Threading.Thread.Sleep(15);foreach(ListViewItem r in history.Items)if(r.SubItems[1].Text=="Matthew 6:33" && r.SubItems[4].Text!="Dismissed")matthew=true;}
     if(!matthew)throw new Exception("Reported Matthew quotation failed to reach detections");
@@ -329,7 +343,7 @@ namespace EasyWorshipControllerMvp {
     if(selected.Text!="Psalms 119:25")throw new Exception("Unexpected candidate ordering");
     selected.Focus();Application.DoEvents();
     record.Invoke(form,new object[]{new ScriptureDetection{Book="Psalms",Chapter=119,Verse=26,RequiresReview=true,EvidenceKind="quotation",SourceText="Later arrival",Confidence=.75},false,"later-arrival"});
-    if(!object.ReferenceEquals(recent.Controls[0],firstRow) || selected.Text!="Psalms 119:25")throw new Exception("Incoming candidate moved focused action target");
+    if(!object.ReferenceEquals(recent.Controls[0],firstRow))throw new Exception("Row identity changed: first=" + recent.Controls[0].GetType().Name); if(selected.Text!="Psalms 119:25")throw new Exception("Focused target text changed to: "+selected.Text);
     FlowLayoutPanel actions=(FlowLayoutPanel)firstRow.GetControlFromPosition(1,0);Button direct=(Button)actions.Controls[0];
     direct.PerformClick();var actionWait=System.Diagnostics.Stopwatch.StartNew();
     while((fake.Calls==0 || (bool)typeof(MainForm).GetField("presentationRunning",flags).GetValue(form)) && actionWait.ElapsedMilliseconds<3000){Application.DoEvents();System.Threading.Thread.Sleep(10);}
@@ -373,12 +387,21 @@ namespace EasyWorshipControllerMvp {
     final.Invoke(form,new object[]{"For I called him he Loon and blessed him and increased him.",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
     quoteWait.Restart();while(!history.Items.Cast<ListViewItem>().Any(r=>r.SubItems[1].Text=="Isaiah 51:2") && quoteWait.ElapsedMilliseconds<15000){Application.DoEvents();System.Threading.Thread.Sleep(15);}
     if(!history.Items.Cast<ListViewItem>().Any(r=>r.SubItems[1].Text=="Isaiah 51:2") || reference.Text!="Isaiah 51:\u2026")throw new Exception("Following Isaiah quote must remain separate from active draft");
-    CheckBox automaticPrepare=(CheckBox)typeof(MainForm).GetField("autoPreviewCheck",flags).GetValue(form);automaticPrepare.Checked=true;
+    CheckBox automaticPrepare=(CheckBox)typeof(MainForm).GetField("autoPreviewCheck",flags).GetValue(form);automaticPrepare.Checked=true;Application.DoEvents();
     int calls=fake.Calls;
+    var navClock=System.Diagnostics.Stopwatch.StartNew();
     foreach(string command in new string[]{"Genesis chapter 49 verses 3 and verse 4","Next verse"}){
+      var detBefore=typeof(MainForm).GetField("lastDetection",flags).GetValue(form);
+      var det2=typeof(MainForm).GetField("scriptureDetector",flags).GetValue(form);
+      var ff=det2.GetType().GetField("lastVerse",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic);
+      var fb=det2.GetType().GetField("lastBook",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic);
+      var fs=det2.GetType().GetField("spokenAfterDisplay",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic);
+      Console.WriteLine("NAVTEST t="+navClock.ElapsedMilliseconds+"ms before='"+command+"' last="+(detBefore==null?"null":((ScriptureDetection)detBefore).ReferenceText)+" parserBook="+fb.GetValue(det2)+" parserVerse="+ff.GetValue(det2)+" spokenAfterDisplay="+fs.GetValue(det2));
       final.Invoke(form,new object[]{command,1.0,"Local Whisper",0.0,-1,null});quoteWait.Restart();
+      var detAfter=typeof(MainForm).GetField("lastDetection",flags).GetValue(form);
+      Console.WriteLine("NAVTEST t="+navClock.ElapsedMilliseconds+"ms after last="+(detAfter==null?"null":((ScriptureDetection)detAfter).ReferenceText+"/"+((ScriptureDetection)detAfter).EvidenceKind));
       while((fake.Calls==calls || (bool)typeof(MainForm).GetField("presentationRunning",flags).GetValue(form)) && quoteWait.ElapsedMilliseconds<4000){Application.DoEvents();System.Threading.Thread.Sleep(10);}
-      calls++;if(fake.Calls!=calls || fake.Last.Scripture.VerseEnd!=0)throw new Exception("Automatic single-verse range/navigation failed");
+      calls++;if(fake.Calls!=calls)throw new Exception("Auto prepare call count: expected "+calls+" got "+fake.Calls+" last="+(fake.Last==null?"none":fake.Last.Scripture.ReferenceText)); if(fake.Last.Scripture.VerseEnd!=0)throw new Exception("Range not collapsed: "+fake.Last.Scripture.ReferenceText);
     }
     if(fake.Last.Scripture.ReferenceText!="Genesis 49:4")throw new Exception("Automatic next verse did not prepare verse 4");
     automaticPrepare.Checked=false;
@@ -410,13 +433,13 @@ namespace EasyWorshipControllerMvp {
     revision=(long)typeof(MainForm).GetField("interpretationRevision",flags).GetValue(form);
     int activeEpoch=(int)typeof(MainForm).GetField("candidateEpoch",flags).GetValue(form);
     var competing=new System.Collections.Generic.List<ScriptureDetection>{new ScriptureDetection{Book="Deuteronomy",Chapter=4,Verse=24,RequiresReview=true,EvidenceKind="quotation",SourceText="competing fire quote"}};
-    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{competing,session,revision,activeEpoch});Application.DoEvents();
+    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{competing,session,revision,activeEpoch,0L,false});Application.DoEvents();
     if(reference.Text!="Leviticus 6:13")throw new Exception("Quote stole selected spoken reference after ten seconds");
     final.Invoke(form,new object[]{"He says go to verse 11 let's start from verse 11",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
     if(reference.Text!="Leviticus 6:11")throw new Exception("Contextual verse directive did not select verse 11");
     revision=(long)typeof(MainForm).GetField("interpretationRevision",flags).GetValue(form);
     competing[0]=new ScriptureDetection{Book="Leviticus",Chapter=6,Verse=13,RequiresReview=true,EvidenceKind="quotation",SourceText="old verse wording"};
-    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{competing,session,revision,activeEpoch});Application.DoEvents();
+    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{competing,session,revision,activeEpoch,0L,false});Application.DoEvents();
     if(reference.Text!="Leviticus 6:11")throw new Exception("Older verse quote reversed newer contextual instruction");
     final.Invoke(form,new object[]{"without the camp onto a clean place. Okay, verse 12.",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
     if(reference.Text!="Leviticus 6:12")throw new Exception("Verse 12 directive embedded after quotation was lost");
@@ -447,7 +470,7 @@ namespace EasyWorshipControllerMvp {
     if(reference.Text!="Leviticus")throw new Exception("Ordinary explanation released book intent");
     revision=(long)typeof(MainForm).GetField("interpretationRevision",flags).GetValue(form);
     activeEpoch=(int)typeof(MainForm).GetField("candidateEpoch",flags).GetValue(form);
-    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{competing,session,revision,activeEpoch});Application.DoEvents();
+    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{competing,session,revision,activeEpoch,0L,false});Application.DoEvents();
     if(reference.Text!="Leviticus")throw new Exception("Quote displaced book-only SP after elapsed time");
     final.Invoke(form,new object[]{"chapter five",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
     if(reference.Text!="Leviticus 5:\u2026" || active.Stage!="Chapter identified")throw new Exception("Chapter did not complete active book");
@@ -469,7 +492,7 @@ namespace EasyWorshipControllerMvp {
     if(reference.Text!="Leviticus 6:13 ?" || !active.Current.RequiresReview || active.Current.EvidenceKind!="retained")throw new Exception("Incomplete final erased the retained verse or confirmed it without evidence: "+reference.Text);
     revision=(long)typeof(MainForm).GetField("interpretationRevision",flags).GetValue(form);
     activeEpoch=(int)typeof(MainForm).GetField("candidateEpoch",flags).GetValue(form);
-    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{competing,session,revision,activeEpoch});Application.DoEvents();
+    typeof(MainForm).GetMethod("PublishQuotations",flags).Invoke(form,new object[]{competing,session,revision,activeEpoch,0L,false});Application.DoEvents();
     if(reference.Text!="Leviticus 6:13 ?")throw new Exception("Quote displaced retained chapter/verse");
     final.Invoke(form,new object[]{"Go to VES 11. Let's start from VES 11.",1.0,"Local Whisper",0.0,-1,null});Application.DoEvents();
     if(reference.Text!="Leviticus 6:11" || !active.Current.RequiresReview)throw new Exception("VES instruction did not use retained chapter safely: "+reference.Text);
@@ -658,7 +681,7 @@ namespace EasyWorshipControllerMvp {
     form.ShowInTaskbar=false;form.StartPosition=FormStartPosition.Manual;form.Location=new Point(-20000,-20000);form.Show();Application.DoEvents();
     var flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
     typeof(MainForm).GetMethod("ShowDetection",flags).Invoke(form,new object[]{new ScriptureDetection{Book="John",Chapter=3,Verse=16,RequiresReview=true,Confidence=.96}});
-    Label hostPreview=(Label)typeof(MainForm).GetField("verseExcerpt",flags).GetValue(form);hostPreview.Text="KJV · For God so loved the world, that he gave his only begotten Son.";
+    Label hostPreview=(Label)typeof(MainForm).GetField("verseExcerpt",flags).GetValue(form);hostPreview.Text="KJV - For God so loved the world, that he gave his only begotten Son.";
     var record=typeof(MainForm).GetMethod("RecordSuggestion",flags);
     for(int i=0;i<8;i++)record.Invoke(form,new object[]{new ScriptureDetection{Book="John",Chapter=3,Verse=i+1,Confidence=.9,RequiresReview=true,EvidenceKind="quotation",SourceText="Mini layout fixture"},false,"mini-fixture-"+i});
     var type=typeof(MainForm).GetNestedType("MiniOverlay",flags);var mini=(Form)Activator.CreateInstance(type,new object[]{form});
@@ -675,7 +698,7 @@ namespace EasyWorshipControllerMvp {
      }
      if(state=="Expanded") {
       var cards=(BufferedDetectionPanel)type.GetField("detections",flags).GetValue(mini);
-      if(mini.Width<430 || mini.Height>720 || mini.Height<560 || cards.Controls.Count!=8 || cards.Controls[0].Height!=80)throw new Exception("Expanded Mini must retain its minimum width and show eight correctly sized detection cards within the height cap");
+      if(mini.Width<430 || mini.Height>720 || mini.Height<560 || cards.Controls.Count!=8 || cards.Controls[0].Height<88)throw new Exception("Expanded Mini must retain its minimum width and show eight correctly sized detection cards within the height cap");
       var signals=(GazelyCard)body.GetControlFromPosition(0,1);
       var status=(Label)type.GetField("status",flags).GetValue(mini);
       var meter=(AudioLevelMeter)type.GetField("meter",flags).GetValue(mini);

@@ -5,7 +5,7 @@ $source=Get-Content (Join-Path $PSScriptRoot 'EasyWorshipController.cs') -Raw -E
 $start=$source.IndexOf('    internal sealed class ScriptureDetection');$end=$source.IndexOf('    internal sealed class SpeechChunk')
 $core=$source.Substring($start,$end-$start)
 $recovery=Get-Content (Join-Path $PSScriptRoot 'ChapterPronunciationRecovery.cs') -Raw -Encoding UTF8
-$code='using System; using System.Collections.Generic; using System.Text; using System.Text.RegularExpressions; using System.Speech.Synthesis; namespace EasyWorshipControllerMvp {'+$core+'}'+($recovery -replace '(?m)^using [^;]+;\r?\n','')
+$code='using System; using System.Collections.Generic; using System.Text; using System.Text.RegularExpressions; using System.Speech.Synthesis; namespace EasyWorshipControllerMvp {'+$core+'}'+($recovery -replace '(?m)^using [^;]+;\r?\n','')+([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'BookPronunciationRecovery.cs')) -replace '(?m)^using [^;]+;\r?\n','')
 $code+=@'
 namespace EasyWorshipControllerMvp {
  public static class ChapterRecoveryTests {

@@ -13,7 +13,7 @@ $source=$source.Replace('await System.Threading.Tasks.Task.Run(delegate{whisperF
 $source=$source.Replace('await System.Threading.Tasks.Task.Run(delegate{next.Start("parakeet",generation,AddLog);});','await LifecycleFixture.Load("parakeet");')
 $source=$source.Replace('await System.Threading.Tasks.Task.Run(delegate{nextWhisper.Start(model,AddLog);});','await LifecycleFixture.Load("whisper");')
 $source=$source.Replace('audioRecorder.Start();','LifecycleFixture.Capture();').Replace('if(useNativeStreaming)engine.Finish();','if(useNativeStreaming)LifecycleFixture.Flush();').Replace('if(useNativeStreaming && engine!=null)engine.Finish();','if(useNativeStreaming && engine!=null)LifecycleFixture.Flush();')
-foreach($file in @('PresentationAdapters.cs','GazelyInterface.cs','ChapterPronunciationRecovery.cs','GazelyCloud.cs')){
+foreach($file in @('PresentationAdapters.cs','GazelyInterface.cs','ChapterPronunciationRecovery.cs','BookPronunciationRecovery.cs','ScripturePlan.cs','GazelyCloud.cs')){
  $source+=[Environment]::NewLine+([IO.File]::ReadAllText((Join-Path $PSScriptRoot $file)) -replace '(?m)^using [^;]+;\r?\n','')
 }
 $source+=@'

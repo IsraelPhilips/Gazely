@@ -1,4 +1,4 @@
-﻿# Build EasyWorship Controller MVP
+# Build EasyWorship Controller MVP
 # Offline build using Windows PowerShell / .NET Framework.
 # No internet, Visual Studio, NuGet, or dotnet SDK required.
 #
@@ -82,6 +82,8 @@ try {
     $adapters = Get-Content (Join-Path $here 'PresentationAdapters.cs') -Raw -Encoding UTF8
     $interface = Get-Content (Join-Path $here 'GazelyInterface.cs') -Raw -Encoding UTF8
     $recovery = Get-Content (Join-Path $here 'ChapterPronunciationRecovery.cs') -Raw -Encoding UTF8
+    $bookRecovery = Get-Content (Join-Path $here 'BookPronunciationRecovery.cs') -Raw -Encoding UTF8
+    $plan = Get-Content (Join-Path $here 'ScripturePlan.cs') -Raw -Encoding UTF8
     $cloud = Get-Content (Join-Path $here 'GazelyCloud.cs') -Raw -Encoding UTF8
     if($CloudRelease -or $EmailEntry) {
         if([string]::IsNullOrWhiteSpace($CloudConfig) -or !(Test-Path -LiteralPath $CloudConfig)) { throw 'An email-enabled build requires -CloudConfig with the public project URL and publishable key.' }
@@ -107,12 +109,16 @@ try {
     $parameters=New-Object System.CodeDom.Compiler.CompilerParameters
     $parameters.GenerateExecutable=$true
     $parameters.OutputAssembly=$temporaryOutput
-    $parameters.CompilerOptions='/target:winexe /win32icon:"'+(Join-Path $here 'assets/Gazely.ico')+'"'+$(if($CloudRelease){' /define:GAZELY_CLOUD_RELEASE'}elseif($EmailEntry){' /define:GAZELY_EMAIL_ENTRY'}elseif($FreeAccess){' /define:GAZELY_FREE_ACCESS'}else{''})
+    # The CodeDOM compiler defaults to the system ANSI codepage, which silently
+    # corrupts every non-ASCII character in the source: a UTF-8 middle dot became
+    # "Â·" in the UI, em dashes became hyphens, and bullets and open circles were
+    # dropped entirely. /codepage:65001 tells it the sources are UTF-8.
+    $parameters.CompilerOptions='/target:winexe /codepage:65001 /win32icon:"'+(Join-Path $here 'assets/Gazely.ico')+'"'+$(if($CloudRelease){' /define:GAZELY_CLOUD_RELEASE'}elseif($EmailEntry){' /define:GAZELY_EMAIL_ENTRY'}elseif($FreeAccess){' /define:GAZELY_FREE_ACCESS'}else{''})
     foreach($reference in $refs){$null=$parameters.ReferencedAssemblies.Add($reference)}
     $parameters.TreatWarningsAsErrors=$true
     $provider=New-Object Microsoft.CSharp.CSharpCodeProvider
     try {
-        $compiled=$provider.CompileAssemblyFromSource($parameters,[string[]]@($code,$adapters,$interface,$recovery,$cloud))
+        $compiled=$provider.CompileAssemblyFromSource($parameters,[string[]]@($code,$adapters,$interface,$recovery,$bookRecovery,$plan,$cloud))
         if($compiled.Errors.HasErrors){throw (($compiled.Errors | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine)}
     } finally { $provider.Dispose() }
 
