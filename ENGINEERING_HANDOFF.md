@@ -1,5 +1,69 @@
 # Gazely engineering handoff
 
+### 15 November — the seed cleared the flag it was meant to preserve
+
+Third attempt at the same operator-visible symptom, and the r3 log finally showed
+why. It split the reference into three utterances again:
+
+```
+06:28:48  "in genesis chapter"    book and chapter word, no number
+06:28:50  "forty nine"            the number alone
+06:28:52  "verses three and verse four"
+06:28:52  Detected scripture: Genesis 49:3 - MEDIUM
+```
+
+`MEDIUM` is confidence 0.88, so the explicit path was still not taken.
+
+The parser logic from the previous fix was verified correct in isolation: three
+utterances with no seed produce `kind=explicit, conf=0.97, review=False`. The
+difference was the **draft**. When a chapter-only utterance yields no detection,
+the application builds a `draft` detection (`EvidenceKind="draft"`,
+`RequiresReview=true`, verse 0) and confirms it into `activeReference`. The next
+utterance then seeds from that draft, and the previous fix's seed logic set
+
+```
+contextFromExplicitBookChapter = verse>0 && !review && (explicit || navigation)
+```
+
+which is **false** for a draft. So the seed cleared the very flag the
+chapter-anchor branch had just raised on the preceding utterance, and the verse
+fell back to contextual / 0.80 / review-required. Auto refused it.
+
+Fix: the seed now only *raises* the flag, never lowers it for a draft. A confirmed
+explicit or navigation reference raises it; a draft carrying a chapter but no verse
+is mid-way through an explicit call, so it leaves the flag as the parser set it.
+Any other reference lowers it. The one-utterance window still clears the flag when
+intervening speech breaks the anchor, and the seed deliberately does not mark
+`contextExplicitSetThisCall`, so the conversational-continuation guard is intact.
+
+Verified by reproducing the application's real seed-then-draft cycle over the
+operator's three utterances:
+
+```
+1  det=null            active=Genesis 0:0/draft   flag=False
+2  det=null            active=Genesis 49:0/draft  flag=True
+3  det=Genesis 49:3-4  kind=explicit  conf=0.97  review=False
+   resolved=Genesis 49:3  CanAutomate=True
+```
+
+Validation: all twelve suites pass, including the parser and quotation suites that
+guard the intervening-speech case. Release
+`Gazely-Setup-Free-20261115-r4.exe` (SHA-256
+`C6D13696363EA15EB3804AE4D9C8A3FBCDB277F65C96DC81A5D6C19E21C0101E`) carries the
+fix; its installed executable matches the candidate
+`4B36BD6B366B2D3460843D2BB22D9C5CEB24200F3CCBCB7C20ACD38D95DB4A69` over a
+375-file tree. Production and rollback builds unchanged.
+
+**Process note.** Three attempts at one symptom, each time because the fix was
+verified in isolation rather than through the application's actual call sequence:
+the first fix was correct in the parser but the application never reached that
+state; the second was correct in `SeedActiveReference` but the surrounding draft
+handling undid it. Verifying a component in isolation says nothing about whether
+the application reaches it, and the reproduction must follow the real call
+sequence — seed, parse, then the draft confirmation the caller performs. Rebuilding
+a probe against the real flow is what located this, and it should have been the
+first step.
+
 ### 15 November — the seed ran before every parse, so the fix never applied
 
 The r2 fix was correct in the parser but the operator still saw no auto output.

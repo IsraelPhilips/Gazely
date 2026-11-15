@@ -1762,15 +1762,27 @@ namespace EasyWorshipControllerMvp
             lastVerseEnd=reference.VerseEnd;lastTranslation=reference.Translation;
             lastTranslationExplicit=reference.TranslationExplicit;contextUpdatedUtc=DateTime.UtcNow;
             displayedContext=null;spokenAfterDisplay=true;
-            // The active reference is the context a following verse continues. When
-            // that reference is a confirmed explicit call, the verse arriving next
-            // completes a genuinely explicit reference and must be treated as one:
-            // the seed runs before every Feed, so without this the explicit
-            // provenance is lost and the result stays review-required, which made
-            // Auto refuse a call the parser knew was explicit.
-            contextFromExplicitBookChapter = reference.Verse>0 && !reference.RequiresReview
+            // The active reference is the context a following verse continues. The
+            // seed runs before every Feed, so if it cleared this flag it would undo
+            // the chapter-anchor branch that just set it — which is exactly what
+            // happened: a chapter-only call becomes a "draft" in activeReference,
+            // the seed then marked the context non-explicit, and the verse arriving
+            // next stayed review-required so Auto refused it.
+            //
+            // So the flag is only *raised* here, never lowered. A confirmed explicit
+            // or navigation reference raises it. A draft carrying a chapter but no
+            // verse is mid-way through an explicit call, so it leaves the flag as
+            // the parser set it. The one-utterance window in Feed still clears it
+            // when intervening speech breaks the anchor.
+            bool seedExplicit = reference.Verse>0 && !reference.RequiresReview
                 && (reference.EvidenceKind=="explicit" || reference.EvidenceKind=="navigation");
-            contextExplicitSetThisCall=true;
+            bool seedDraft = reference.Verse<=0 && reference.Chapter>0;
+            if(seedExplicit) contextFromExplicitBookChapter=true;
+            else if(!seedDraft) contextFromExplicitBookChapter=false;
+            // Deliberately not marking contextExplicitSetThisCall here: the seed is
+            // not the utterance doing the work, and marking it would let the flag
+            // survive intervening speech, which the conversational-continuation
+            // guard exists to prevent.
             if(reference.Verse>0)correctionContext=reference.Snapshot();
             else
             {
