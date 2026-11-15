@@ -1,5 +1,39 @@
 # Gazely — next execution phase
 
+## 15 November 2026 — Phases 1–5 delivered, installer built
+
+The approved plan's phases 0–5 are implemented and the first installer carrying
+them exists. Everything below is recorded in the engineering handoff with evidence.
+
+| Phase | Delivered |
+|---|---|
+| 0 | ASR-cue survival and latency baselines (`benchmarks/PHASE0_FINDINGS.md`) |
+| 1 | Entry-state incremental entry and readback polling in place of fixed sleeps |
+| 2 | Speculation pre-fill behind Enter, with the yield guard |
+| 3 | Autonomy levels (Observe / Assist / Auto) replacing the two switches |
+| 4 | Scripture plan, ordinal resolution, quote promotion, phonetic book recovery, plan strip |
+| 5 | UI sweep, two product-bug fixes, build encoding fix, docs, installer |
+
+Release `Gazely-Setup-Free-20261115-r1.exe` (SHA-256
+`715048672D70AF7C95D2E708E82D180C4B62D1491CBCBEA61B5DA5170447CDA7`) passed an
+isolated install; the installed executable matches the candidate. It is unsigned.
+
+Carried forward as the next work, in priority order:
+
+1. **Close the interface-suite test debt.** Its assertions below the current stop
+   point have never executed, because the suite previously died earlier. Two real
+   product bugs were found by getting that far; more may follow. The current stop
+   is proven to be harness state rather than a product defect.
+2. **Capture the two real-audio fixtures** Phase 0 identified as missing: a genuine
+   enumeration ("we'd be reading three scriptures") and a genuine ordinal ("the
+   final scripture"). The plan and promotion layers are currently verified on
+   synthetic text only.
+3. **Operator testing on the candidate**: the autonomy selector, speculation's
+   timing, and the announced-set strip have not been exercised against a live
+   service.
+4. **Remaining release gates**: 8 GB hardware validation, code signing, and the
+   live EasyWorship selection readback.
+
 ## 14 November 2026 — autonomy levels, scripture plan and automation speed (approved)
 
 Product-owner-approved direction. This is a plan; none of it is implemented yet.

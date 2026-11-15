@@ -1,5 +1,48 @@
 # Gazely engineering handoff
 
+### 15 November — documentation refresh and the first post-Phase-5 installer
+
+**Documentation.** `README.md` and `TECHNICAL_GUIDE.md` now describe the shipped
+behaviour rather than the two-toggle world they had been left in. README gains an
+**Autonomy** section (the three levels, why there is no percentage, what each level
+does, the chapter-only hold, quotes staying in preview, "give me that scripture",
+the announced set, and that operator typing is never overwritten). Every stale
+reference to "Auto prepare / Automatic Live" as independent switches was replaced.
+TECHNICAL_GUIDE section 7 was rewritten: the level-to-behaviour mapping, the single
+`CompleteExplicit` score-gate exception with the measurement that justifies it,
+speculation and its yield guard, the `operatorDraft`/`operatorTyping` distinction,
+the scripture plan and its abstention rule, quote promotion, and plan lifecycle.
+The test-suite table now lists the five suites added in Phases 4–5.
+
+**Release `Gazely-Setup-Free-20261115-r1.exe`** — the first installer carrying
+Phases 1–5.
+
+| Artifact | Bytes | SHA-256 |
+|---|---:|---|
+| `Gazely-Setup-Free-20261115-r1.exe` | 1,164,797,862 | `715048672D70AF7C95D2E708E82D180C4B62D1491CBCBEA61B5DA5170447CDA7` |
+| `Gazely-Windows-Free-20261115-r1.zip` | 1,164,744,606 | `13FCC8CB21EE4FB6FF2610620F124CC03B3ADD611FAF575FEDCC718E57354C7E` |
+
+373 package files, 1,330,428,745 bytes unpacked. All three speech packages verified
+offline before assembly (Whisper 164,314,589 B; Nemotron 737,021,328 B; Parakeet
+179,354,474 B). An isolated no-shortcut install returned success, its 375-file tree
+matched the manifest, and the installed `Gazely.exe` hash equals the release marker
+and candidate (`2C5D6A37…`). The package contains no Bible map, preferences,
+diagnostics, integration settings or cloud build config. The installed build was
+launched and reached its first-run guide, confirming it starts and renders.
+
+Against r5 (17 October) this release adds: the operator autonomy levels, speculation
+and the yield guard, readback-based incremental entry, the scripture plan with
+ordinal resolution, quote promotion by spoken request, phonetic book recovery, the
+scripture plan strip, the icon-labelled navigation bar, the Mini autonomy selector
+and layout repairs, the candidate-list click protection, operator-typing protection,
+and the build encoding fix. Production `Gazely.exe` and rollback `Gazely.previous.exe`
+are unchanged; earlier installers are untouched.
+
+Still open: the installer is unsigned, so Windows may show an unknown publisher; the
+interface suite still stops below its never-executed assertions; the two real-audio
+fixtures from Phase 0 are not captured; and neither the plan nor speculation has been
+exercised against a live service. No 8 GB hardware validation.
+
 ### 14–15 November — Phase 5: UI sweep, encoding fix, two real bugs, and test debt
 
 **Non-ASCII was corrupted at compile time (fixed).** The builder set no source

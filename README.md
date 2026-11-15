@@ -27,14 +27,23 @@ Pewbeam, which the user assesses at roughly 98% accuracy. Improving offline
 recognition on ordinary hardware is the immediate engineering priority.
 
 The preserved baseline displays its historical Scripture Assistant name; the
-latest evaluation build identifies itself as Gazely. It now has a dark/light
-workspace using the brand palette, with separate setup and integration screens.
-The approved visual direction now extends across all seven sections: compact
-rounded input fields, soft surfaces and light/dark themes. Recent scriptures sit
-inside Live workspace with direct Prepare/Present actions. The Present page also
-shows a local KJV preview, explicitly separate from the selected output version.
-The supplied PNG brand symbol and Windows app icon are included. Onboarding,
-model installation and high-DPI/accessibility validation remain outstanding.
+latest evaluation build identifies itself as Gazely. It has a dark/light workspace
+using the brand palette, with an icon-labelled navigation bar and separate setup
+and integration screens. The approved visual direction extends across every
+section: compact rounded input fields, soft surfaces, shared card and control
+styling, and light/dark themes. Recent scriptures sit inside Live workspace with
+direct Prepare/Present actions. The Present page also shows a local KJV preview,
+explicitly separate from the selected output version. The supplied PNG brand symbol
+and Windows app icon are included. Onboarding, model installation and
+high-DPI/accessibility validation remain outstanding.
+
+Operator autonomy is a three-level setting (**Observe / Assist / Auto**) rather
+than a pair of switches; see the Autonomy section below. Gazely also keeps the set
+of scriptures announced in a sermon section and can follow ordinal references back
+to it. Where non-ASCII characters appear in the interface they now render
+correctly: the build previously compiled sources in the system ANSI codepage,
+which silently corrupted em dashes and dropped glyphs such as the listening-status
+circles.
 
 Choose **Edit reference** in Live workspace to open the book/chapter/verse controls.
 Choose **Mini overlay** in the navigation for the live-service view. On first use,
@@ -82,7 +91,7 @@ For the latest parser and offline quotation work, run
 `EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/Gazely.exe`.
 It detects same-chapter ranges and contextual verse instructions, and offers
 review-required quotation suggestions with local KJV evidence. Keep the `corpus`
-folder beside the executable. Start with Automatic Live off. The original launcher
+folder beside the executable. Start at the Observe level. The original launcher
 still opens the preserved baseline. Recognition accuracy remains below target;
 this is an evaluation build, not a production replacement.
 
@@ -131,7 +140,7 @@ are local to each installation. Fresh installations use application defaults.
 3. Open **Integrations** to enable EasyWorship 7. The bundled adapter needs no
    download; Gazely remembers whether it is enabled. Later integrations are
    listed as planned, not working options.
-4. Return to **Live workspace**, leave Automatic Live off, and start listening.
+4. Return to **Live workspace**, leave the level at Observe, and start listening.
 5. Use **Evidence** to inspect a suggestion, **Prepare** to fill the target's
    scripture selector, and **Present** to request live output. Check EasyWorship's
    screen: Gazely does not yet verify actual live output.
@@ -165,13 +174,42 @@ remain unfinished. See the engineering handoff for reproducible results.
 Close Gazely and reopen with **RUN_GAZELY.bat** after an update. If the app was
 running during the build, this launcher activates the staged update automatically.
 
-Gazely now remembers theme, Auto prepare / Automatic Live, speech engine, model,
-voice pickup, selected input (when still available) and early-result display in
+Gazely now remembers theme, **autonomy level**, speech engine, model, voice pickup,
+selected input (when still available) and early-result display in
 `gazely-preferences.txt` beside the app. Changes save as you make them and on exit.
 Previously unsaved choices must be set once in the updated build. Listening always
-starts stopped; enabling Automatic Live is confirmed on first selection, while a
-saved enabled choice restores without asking again. Detections/History remain
-session data. Existing integration enablement is saved separately.
+starts stopped; choosing **Auto** is confirmed on first selection, while a saved
+choice restores without asking again. Detections/History remain session data.
+Existing integration enablement is saved separately.
+
+## Autonomy
+
+One setting decides how much Gazely does on its own. There is no confidence
+percentage: the scores Gazely holds are different scales and none is a calibrated
+probability, so a dial could not mean anything honest.
+
+| Level | Gazely does | You do |
+|---|---|---|
+| **Observe** | detects and shows suggestions | everything |
+| **Assist** | fills the reference as you speak, and prepares a clear reference when you press Prepare | approve every send |
+| **Auto** | the above, and presents a complete spoken reference automatically | supervise, and override |
+
+At every level, ambiguity makes Gazely abstain rather than guess, and your own
+actions always outrank it. A **chapter-only** call such as "Isaiah 60" shows Isaiah
+60:1 but is held until a verse is actually called — Gazely does not invent a verse.
+**Quotes stay in preview**: a passage matched from wording alone is never sent live
+unless you ask for it. Saying **"give me that scripture"** promotes the closest
+quote it is holding, and if two match equally well it says so and leaves the choice
+to you. **Auto** is the only level that presents without you, and it does so for a
+complete spoken reference such as "Isaiah 60:1".
+
+While you are typing in the reference fields, incoming speech never overwrites you.
+Gazely also recognises an announced set — "we'd be reading three scriptures…" — and
+can follow "the next one I called in Psalms" or "the final scripture". The strip
+beneath the scripture card shows what has been announced.
+
+If you or someone else uses EasyWorship directly, Gazely stands back and leaves the
+reference to you.
 
 The workspace input meter shows audio activity without flashing voice/no-voice
 warnings during normal pauses. **Live text (revising)** displays partial recognition
@@ -184,10 +222,10 @@ by a verse cue. Ambiguous verse numbers remain unresolved and cannot be presente
 These suggestions always require review; this is not general paraphrase reasoning.
 
 Spoken ranges now start at their first verse: “Genesis 49:3–4” selects 49:3.
-A clear “next verse” following a recent unambiguous reference can use Auto prepare
-or Automatic Live when that mode is enabled. Clear numeric calls such as “Genesis
-one one” also qualify. Quotes, paraphrases, pronunciation recovery and ambiguous
-navigation still require review. A manually entered range remains a range.
+A clear “next verse” following a recent unambiguous reference can be prepared at
+Assist or presented at Auto. Clear numeric calls such as “Genesis one one” also
+qualify. Quotes, paraphrases, pronunciation recovery and ambiguous navigation
+still require review. A manually entered range remains a range.
 
 Chapter-only calls such as “Isaiah 51…” stay as incomplete drafts. Recent chapter
 context helps quotation selection; a bounded two-chunk semantic retry can recover
@@ -227,7 +265,7 @@ Files remain in [the existing application folder](EasyWorshipController_MVP_v6_2
 2. Open EasyWorship 7.
 3. Run [RUN_CONTROLLER.bat](EasyWorshipController_MVP_v6_2_CODEX_HANDOFF/RUN_CONTROLLER.bat).
 4. Choose the intended microphone/mixer, Local AI, Balanced and Normal voice pickup.
-5. Keep Automatic Live off while evaluating recognition. Start listening.
+5. Keep the level at Observe while evaluating recognition. Start listening.
 
 A trailing `?` marks an unfinished candidate. Finalized interpretations appear
 under Detected Scripture. Number-format and phonetic suggestions require review.
@@ -267,7 +305,7 @@ This startup assumption is not selection readback: if EasyWorship is already on
 another version when Gazely starts, use **Reset version tracking** first.
 This action is available in Live workspace's Detections options menu and Present.
 Clicking **Present** sends the valid reference immediately, without a second
-confirmation dialog. Automatic Live remains a separate opt-in mode.
+confirmation dialog. Auto remains a separate opt-in level.
 
 Tests, validation evidence and remaining limitations are documented in the
 [engineering handoff](ENGINEERING_HANDOFF.md#validation-and-evidence).

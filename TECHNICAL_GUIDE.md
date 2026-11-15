@@ -517,7 +517,32 @@ session state. Restoring Automatic Live does not start listening or issue output
 
 ## 7. Automation and adapter boundaries
 
-`SpeechPresentationPolicy.CanAutomate` requires all of:
+### Operator autonomy levels
+
+Automation is an explicit, three-level operator setting, not a confidence
+percentage. `AutonomyPolicy` owns the mapping and nothing else re-derives it:
+
+| Level | Pre-fills the reference | Auto prepare | Automatic live |
+|---|---|---|---|
+| Observe | no | no | no |
+| Assist | yes | yes | no |
+| Auto | yes | yes | yes |
+
+Assist is "auto prepare on, auto live off"; Auto presents. The two checkboxes
+that previously controlled this remain in the UI as **mirrors of the level**, so
+the existing preference keys (`autoLive`, `autoPrepare`) and every call site keep
+working; the level is derived from them at load, so an existing installation needs
+no migration. A capability guard caps the level rather than silently granting it:
+asking for Auto without automatic-live permission lands on Assist, and nothing
+caps upward past the operator's choice.
+
+A numeric dial is deliberately rejected. The scores the product holds (cosine,
+reranker logit, parser confidence) are different scales and none is a calibrated
+probability, so a percentage could not be built, tested or explained.
+
+### The one score-gate exception
+
+`SpeechPresentationPolicy.CanAutomate` requires:
 
 ```text
 not RequiresReview
@@ -525,12 +550,63 @@ Confidence >= 0.88
 EvidenceKind is explicit or navigation
 ```
 
+**except** that a `CompleteExplicit` reference bypasses the score entirely. That
+flag is set only where every part of a reference was genuinely spoken or
+unambiguously written — not an inferred separator, not a range, not
+review-required, not a correction. The reason is measured: a plainly correct call
+parsed as "book + two numeric values" scores exactly 0.88, so a `>= 0.88` test
+refused it while it was displayed on screen. Every other path keeps its
+threshold. Corrections, ranges and review-required candidates are excluded, so
+the bypass cannot be reached by guesswork.
+
 Other runtime checks still apply: automation enabled, destination enabled, not busy,
 valid current state and duplicate suppression. The same automatic signature is
 suppressed within 12 seconds. A clear anchored next/previous-verse instruction can
 be promoted to score .90. Partial text, quotes, semantic paraphrases and phonetic
 recovery do not become automatic-live instructions merely because a score is high.
 Manual Present is immediate operator authorization; no per-send confirmation.
+
+### Speculation
+
+`SpeculationPolicy` pre-fills EasyWorship before the operator asks, so the
+mechanical cost overlaps the speaker's pause instead of following it. It touches
+only state that is undone by not pressing Enter, so a wrong guess costs a retype,
+not a wrong live verse. It guesses **book and chapter only** — a verse is never
+guessed, because typing one would disturb the read that follows. It refuses
+quotation, paraphrase and review-required evidence, never repeats a preparation,
+never retries a failed one, and never re-fills a reference that has already gone
+live. Version movement is not speculated: Bible selection stays the operator's.
+
+The yield guard is part of the same policy. Operator-held selections, focus or
+pointer in the reference fields, an in-flight send, and any recent keyboard or
+mouse activity in the presentation application all stand speculation down.
+
+### Operator intent that must not be overwritten
+
+`operatorDraft` and `operatorTyping` are distinct states and the distinction is
+load-bearing. A **held selection** (a picked quote, a history row, an applied
+draft) may be replaced by a complete spoken reference, as agreed on 15 October.
+**Active typing** may not: the operator's own edit is never clobbered by incoming
+speech. The live reference editor wires `TextChanged` to set the typing state.
+
+### The scripture plan
+
+`ScripturePlan` holds the ordered set of scriptures announced in a sermon section
+and resolves ordinal references against it ("the next one I called in Psalms",
+"the final scripture"). This is deterministic lookup over a set this process
+built, never model inference: an ordinal plus an optional book constraint selects
+a member, and when it does not identify exactly one, it **abstains**. A book
+constraint on Next/Previous must narrow the plan to a single member; counting
+ordinals (first/second/last) are exempt because they name a position, so the
+constraint checks the answer rather than narrowing the field. `PlanLifecycle`
+ends a plan at a new declared count, 300 seconds of silence, more than 20 members,
+or a manual reset — each reported to the operator rather than expiring silently.
+
+`QuotePromotionPolicy` handles "give me that scripture". It promotes the
+**highest matched** held quotation, not the newest, only from literal quotation
+evidence (never a paraphrase, which rests on similarity alone), and abstains when
+two candidates tie. A promoted quote travels the same review path as an operator
+clicking an alternative.
 
 `PresentationIntent` snapshots scripture and action details. The coordinator checks
 capabilities, serializes command attempts, uses cancellation generations and caches
@@ -622,10 +698,15 @@ excluded from Git. A fresh clone is source, not an installed application.
 | Test | What it protects |
 |---|---|
 | `Test-ScriptureParser.ps1` | Explicit references, aliases, numbers, ranges and context; existing suite has 330 cases |
-| `Test-QuotationIndex.ps1` | Lexical retrieval, multiple quotes, scoped matches and presentation policy |
+| `Test-QuotationIndex.ps1` | Lexical retrieval, multiple quotes, scoped matches, presentation policy, and that a clear next verse is live-eligible at Auto but never at Assist |
 | `Test-SemanticSearch.ps1` | Real installed model retrieval, positives/negatives, reported-sermon/held-out fixtures |
 | `Test-PresentationAdapters.ps1` | Fake adapter lifecycle, cancellation, outcomes and intent semantics |
 | `Test-VersionNavigation.ps1` | Version position tracking and navigation decisions |
+| `Test-AutonomyPolicy.ps1` | The three-level mapping, level ordering and selector ordinals, and that a capability guard caps down but never up |
+| `Test-SpeculationPolicy.ps1` | What may be pre-filled, what must never be, and every yield-guard condition |
+| `Test-ScripturePlan.ps1` | Announced-set membership, ordinal resolution, dedupe, and that ambiguity abstains |
+| `Test-PlanLifecycle.ps1` | Plan boundaries and quote promotion, including that ties abstain and paraphrases never promote |
+| `Test-BookRecovery.ps1` | Bounded phonetic recovery of a misheard book name, filler stripping and negatives |
 | `Test-Interface.ps1` | Layout, candidate actions, history, stale results, held selection and preference restore |
 | `Test-SpeechPipeline.ps1`, `Test-AudioPipeline.ps1` | Speech/audio pipeline behavior |
 | `Test-ChapterRecovery.ps1` | Pronunciation recovery hypotheses |
