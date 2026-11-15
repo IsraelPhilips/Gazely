@@ -1,5 +1,54 @@
 # Gazely engineering handoff
 
+### 15 November — the seed ran before every parse, so the fix never applied
+
+The r2 fix was correct in the parser but the operator still saw no auto output.
+The r2 session log gave the decisive detail: `"in genesis chapter forty nine"`
+arrived as **one** utterance, so the book and chapter were both explicitly heard,
+yet the result was still `Genesis 49:3 — MEDIUM` at confidence 0.88. The new
+explicit path should have produced 0.97.
+
+Cause: `OnFinalTranscript` calls `SeedActiveReference(activeReference.Context)`
+**immediately before every parse** (line 6795). The seed sets `lastBook`,
+`lastChapter` and `lastVerse` straight from the active reference, so by the time
+`Detect` ran, the context was already populated by the seed rather than by the
+chapter-anchor branch that sets `contextFromExplicitBookChapter`. The verse then
+took the context-continuation path with the flag unset, and stayed
+review-required. The parser fix was never reached. This is why the fix verified
+in isolation and did nothing in the application — a reminder that a policy
+verified against a parser in isolation says nothing about whether the
+application reaches that parser state.
+
+Fix: `SeedActiveReference` now carries the provenance too. When the reference
+being seeded is a confirmed, non-review explicit or navigation call, the
+following verse continues a genuinely explicit reference and is treated as one.
+The flag has a one-utterance window either way, so intervening speech still
+breaks the anchor and the suite's conversational-continuation guard still holds.
+
+Verified against the exact two utterances from the r2 log:
+
+```
+after 1 : lastBook=Genesis lastChapter=49 flag=True  "Chapter heard; waiting for the verse"
+after 2 : Genesis 49:3-4  kind=explicit  conf=0.97  review=False
+          resolved Genesis 49:3, CanAutomate=True
+```
+
+Previously the same input gave `kind=contextual, conf=0.80, review=True`.
+
+Validation: all twelve suites pass, including the parser and quotation suites
+that guard the intervening-speech case. Release
+`Gazely-Setup-Free-20261115-r3.exe` (SHA-256
+`4876FDD5CADF030CF8B2885E6B43E5BE3A6F26E713AC71D9304D350889565281`) carries the
+fix; its installed executable matches the candidate
+`3B904A3C2FF291E9B2D2133362F0DF86462F73E25EB84E68CC28A2690CDD67C6` over a
+375-file tree. Production and rollback builds unchanged.
+
+Still open: this is the second attempt at the same operator-visible symptom, and
+both times the failure was in reaching the code rather than in the code itself.
+The interface suite's stop point and the absent real-audio fixtures remain. Auto
+now qualifies more calls than before, so operator listening is the acceptance
+test.
+
 ### 15 November — split references were classified contextual, so Auto refused them
 
 Operator report: with Auto selected and both mirrors on, Auto did not reach

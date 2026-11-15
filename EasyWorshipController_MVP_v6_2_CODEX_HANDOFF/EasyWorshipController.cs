@@ -1762,6 +1762,15 @@ namespace EasyWorshipControllerMvp
             lastVerseEnd=reference.VerseEnd;lastTranslation=reference.Translation;
             lastTranslationExplicit=reference.TranslationExplicit;contextUpdatedUtc=DateTime.UtcNow;
             displayedContext=null;spokenAfterDisplay=true;
+            // The active reference is the context a following verse continues. When
+            // that reference is a confirmed explicit call, the verse arriving next
+            // completes a genuinely explicit reference and must be treated as one:
+            // the seed runs before every Feed, so without this the explicit
+            // provenance is lost and the result stays review-required, which made
+            // Auto refuse a call the parser knew was explicit.
+            contextFromExplicitBookChapter = reference.Verse>0 && !reference.RequiresReview
+                && (reference.EvidenceKind=="explicit" || reference.EvidenceKind=="navigation");
+            contextExplicitSetThisCall=true;
             if(reference.Verse>0)correctionContext=reference.Snapshot();
             else
             {
