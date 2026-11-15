@@ -1,5 +1,61 @@
 # Gazely engineering handoff
 
+### 15 November — partial transcripts were leaking the parse-context flag
+
+Fourth attempt at the same operator-visible symptom. This time a diagnostic line
+added to the detection log named the failure outright:
+
+```
+Detected scripture: Genesis 49:3 - MEDIUM
+(state: kind=contextual review=True complete=False conf=0.80
+ canAuto=False canPreview=False level=Auto destEnabled=True presenting=False)
+```
+
+That eliminated everything except the parser: `level=Auto`, `destEnabled=True`,
+`presenting=False` were all correct, and the evidence kind was wrong. The parser's
+own trace in the same log showed the join working (`"Book heard…"` then
+`"Chapter heard; waiting for the verse"`), so the flag was being set and then lost.
+
+Cause: `OnPartialTranscript` runs `SeedActiveReference` followed by `Preview` for
+**every partial**. Nemotron emits hundreds of partials between two spoken
+references — the session logged 600+ — and each one re-seeded the detector. The
+seed mutated `contextFromExplicitBookChapter`, and `Preview`'s save/restore list
+did not include it, so the mutation leaked out of the preview and overwrote the
+provenance the chapter-anchor branch had recorded on the preceding final. The
+verse then fell back to contextual / 0.80 / review-required.
+
+Fix, two parts:
+
+1. `SeedActiveReference` now only ever **raises** the flag. It never lowers it. The
+   seed runs before every parse *and* before every partial preview, so it must not
+   be an authority on clearing. Clearing is owned solely by `Feed`'s one-utterance
+   window, which is the only place that knows whether an utterance advanced the
+   pending reference.
+2. `Preview` now saves and restores `contextFromExplicitBookChapter` and
+   `contextExplicitSetThisCall` with the rest of the parse context, so a partial
+   can no longer leak either.
+
+Verified with a probe that interleaves partials exactly as the running application
+does: the flag survives the partial stream and the final produces
+`Genesis 49:3-4 kind=explicit conf=0.97 review=False canAuto=True`. Previously the
+same sequence gave `contextual / 0.80 / review=True`.
+
+Validation: all twelve suites pass. Release
+`Gazely-Setup-Free-20261115-r5.exe` (SHA-256
+`87DABCA5C420B993C9A2F15AE100E37D6603A62C537930060D541F3572DDEB7D`) carries the
+fix; candidate
+`7AF66E710E5505BC49279783F58A10BB229F21CEFFB810C0335B1F1938E8CD03`.
+
+**Process note, the fourth and clearest.** Every earlier attempt verified a
+component in isolation and every one passed while the application stayed broken.
+What finally located this was a diagnostic line printed by the application itself,
+not another probe. The lesson is not "probe harder" but "make the running program
+state the fact you are guessing at" — the operator-visible symptom was four
+attempts old while a single logged line of the application's own state would have
+shortened it to one. The detection log now carries that line permanently:
+evidence kind, review flag, completeness, confidence, both automation gates, the
+autonomy level, destination enablement and whether a send is in flight.
+
 ### 15 November — the seed cleared the flag it was meant to preserve
 
 Third attempt at the same operator-visible symptom, and the r3 log finally showed

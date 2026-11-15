@@ -1762,27 +1762,20 @@ namespace EasyWorshipControllerMvp
             lastVerseEnd=reference.VerseEnd;lastTranslation=reference.Translation;
             lastTranslationExplicit=reference.TranslationExplicit;contextUpdatedUtc=DateTime.UtcNow;
             displayedContext=null;spokenAfterDisplay=true;
-            // The active reference is the context a following verse continues. The
-            // seed runs before every Feed, so if it cleared this flag it would undo
-            // the chapter-anchor branch that just set it — which is exactly what
-            // happened: a chapter-only call becomes a "draft" in activeReference,
-            // the seed then marked the context non-explicit, and the verse arriving
-            // next stayed review-required so Auto refused it.
+            // The active reference is the context a following verse continues. This
+            // seed runs before every parse AND before every partial preview, and
+            // Nemotron emits hundreds of partials between two spoken references, so
+            // anything the seed does here happens many times per utterance.
             //
-            // So the flag is only *raised* here, never lowered. A confirmed explicit
-            // or navigation reference raises it. A draft carrying a chapter but no
-            // verse is mid-way through an explicit call, so it leaves the flag as
-            // the parser set it. The one-utterance window in Feed still clears it
-            // when intervening speech breaks the anchor.
+            // Therefore the seed only ever *raises* the flag. It must never lower it:
+            // lowering here silently discarded the provenance that the
+            // chapter-anchor branch had just recorded, and the verse arriving next
+            // then fell back to contextual / review-required, so Auto refused it.
+            // Clearing is owned solely by Feed's one-utterance window, which knows
+            // whether the utterance advanced the pending reference or not.
             bool seedExplicit = reference.Verse>0 && !reference.RequiresReview
                 && (reference.EvidenceKind=="explicit" || reference.EvidenceKind=="navigation");
-            bool seedDraft = reference.Verse<=0 && reference.Chapter>0;
             if(seedExplicit) contextFromExplicitBookChapter=true;
-            else if(!seedDraft) contextFromExplicitBookChapter=false;
-            // Deliberately not marking contextExplicitSetThisCall here: the seed is
-            // not the utterance doing the work, and marking it would let the flag
-            // survive intervening speech, which the conversational-continuation
-            // guard exists to prevent.
             if(reference.Verse>0)correctionContext=reference.Snapshot();
             else
             {
@@ -2567,6 +2560,12 @@ namespace EasyWorshipControllerMvp
             DateTime unclearTime=unresolvedUtc;
             int chapter = lastChapter, verse = lastVerse, verseEnd=lastVerseEnd;
             bool explicitTranslation=lastTranslationExplicit;
+            // The explicit book+chapter provenance is part of the parse context, so
+            // a preview must restore it like everything else here. Partials call this
+            // many times per utterance, and a preview that leaked the flag would
+            // corrupt the final that follows.
+            bool explicitBookChapter=contextFromExplicitBookChapter;
+            bool explicitSetThisCall=contextExplicitSetThisCall;
             ScriptureDetection displayed = displayedContext;
             ScriptureDetection correctionAnchor = correctionContext;
             bool spoke = spokenAfterDisplay;
@@ -2588,6 +2587,8 @@ namespace EasyWorshipControllerMvp
                 LastExplanation = explanation;
                 displayedContext = displayed; spokenAfterDisplay = spoke;
                 correctionContext = correctionAnchor;
+                contextFromExplicitBookChapter = explicitBookChapter;
+                contextExplicitSetThisCall = explicitSetThisCall;
             }
         }
         public ScriptureDetection Suggest(string text)
@@ -6814,6 +6815,7 @@ namespace EasyWorshipControllerMvp
                     {
                     long parseStarted = Stopwatch.GetTimestamp();
                     scriptureDetector.SeedActiveReference(scriptureDetector.IsTranslationDirective(clean) && lastDetection!=null?lastDetection:activeReference.Context);
+                    AddLog("Seed: activeRef=" + (activeReference.Context==null?"none":activeReference.Context.ReferenceText+"/"+activeReference.Context.EvidenceKind+"/v"+activeReference.Context.Verse+"/r"+activeReference.Context.RequiresReview) + " text=[" + clean + "]");
                     ScriptureDetection detection = chunk == null ? scriptureDetector.Feed(clean) :
                         scriptureDetector.FeedFinal(clean,session+":"+chunk.UtteranceId);
                     bool finalRevisesProvisional=activeReference.Provisional!=null;
@@ -7195,7 +7197,20 @@ namespace EasyWorshipControllerMvp
                     ? " [" + detection.Translation + "]"
                     : string.Empty) +
                 " — " +
-                confidenceBand);
+                confidenceBand +
+                // Diagnostic detail: which evidence kind reached the UI, whether it is
+                // review-gated, and what the automation gates decide. Cheap to log
+                // and it distinguishes "the parser produced the wrong kind" from
+                // "the parser was right and the automation refused it".
+                " (state: kind=" + detection.EvidenceKind +
+                " review=" + detection.RequiresReview +
+                " complete=" + detection.CompleteExplicit +
+                " conf=" + detection.Confidence.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) +
+                " canAuto=" + SpeechPresentationPolicy.CanAutomate(detection) +
+                " canPreview=" + SpeechPresentationPolicy.CanPreview(detection) +
+                " level=" + AutonomyPolicy.Label(EffectiveAutonomy) +
+                " destEnabled=" + (destination != null && destination.Enabled) +
+                " presenting=" + presentationRunning + ")");
 
             if (!selectingHistory && SpeechPresentationPolicy.CanPreview(detection))
                 MaybeAutoRunDetection(detection);
