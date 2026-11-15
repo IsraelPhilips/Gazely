@@ -1741,6 +1741,17 @@ namespace EasyWorshipControllerMvp
         private ScriptureDetection displayedContext;
         private ScriptureDetection correctionContext;
         private bool spokenAfterDisplay;
+        // True when the book AND chapter in the current context were both heard
+        // explicitly, rather than inherited from an earlier unrelated reference.
+        // A verse arriving next is then a complete explicit call that was merely
+        // split across utterances, not an ambiguous contextual continuation.
+        // Endpointing routinely cuts "in Genesis chapter" / "forty nine" /
+        // "verse three" into three finals, and treating the result as contextual
+        // made it permanently review-required, so Auto and speculation refused it.
+        private bool contextFromExplicitBookChapter;
+        // Set while Detect advances the pending call, so Feed can tell a productive
+        // utterance from intervening speech without a second flag on the detector.
+        private bool contextExplicitSetThisCall;
         private readonly HashSet<string> finalizedEvents = new HashSet<string>();
         private readonly Queue<string> finalizedOrder = new Queue<string>();
 
@@ -1784,6 +1795,7 @@ namespace EasyWorshipControllerMvp
             lastBook = string.Empty;
             lastChapter = 0;
             lastVerse = 0;
+            contextFromExplicitBookChapter=false;
             lastTranslation = string.Empty;
             lastTranslationExplicit=false;lastVerseEnd=0;
             contextUpdatedUtc = DateTime.MinValue;
@@ -1934,6 +1946,8 @@ namespace EasyWorshipControllerMvp
 
             string clean = Normalize(finalTranscript);
             if((DateTime.UtcNow-unresolvedUtc).TotalSeconds>20) UnresolvedBook=UnresolvedSource=string.Empty;
+            bool explicitBookChapterBefore=contextFromExplicitBookChapter;
+            contextExplicitSetThisCall=false;
             string sourceText = finalTranscript;
             bool joinedPending = false;
             // A verse directive is not a chapter, including a repeated leading
@@ -1979,6 +1993,13 @@ namespace EasyWorshipControllerMvp
             else if (contextUpdatedUtc != DateTime.MinValue && (DateTime.UtcNow - contextUpdatedUtc).TotalSeconds > 30)
                 Reset();
             ScriptureDetection detection = TryBookCorrection(clean) ?? Detect(clean);
+            // One-utterance window for the explicit book+chapter flag. If it was set
+            // on entry, and this utterance neither advanced nor consumed the pending
+            // reference, then intervening speech broke it ("Mark chapter 2" ... "I
+            // want to show you something" ... "verse five") and it must not colour a
+            // later verse.
+            if(explicitBookChapterBefore && !contextExplicitSetThisCall && contextFromExplicitBookChapter)
+                contextFromExplicitBookChapter=false;
             if(!string.IsNullOrEmpty(UnresolvedBook) && UnresolvedSource==clean) UnresolvedSource=sourceText;
             if(!string.IsNullOrEmpty(pendingBook) || !string.IsNullOrEmpty(pendingReference)) pendingSourceText=sourceText;
             if(detection==null)
@@ -2258,6 +2279,9 @@ namespace EasyWorshipControllerMvp
                     lastTranslation = translation;
                     lastTranslationExplicit=translationExplicit;
                     contextUpdatedUtc = DateTime.UtcNow;
+                    // The book and chapter were both stated in this utterance, so a
+                    // verse arriving later completes a genuinely explicit call.
+                    contextFromExplicitBookChapter=true;contextExplicitSetThisCall=true;
                     LastExplanation = "Chapter heard; waiting for the verse";
                 }
                 return null;
@@ -2279,24 +2303,36 @@ namespace EasyWorshipControllerMvp
                     if (TryParseChapterVerse(lastChapter + " verse " + verseMatch.Groups[1].Value,
                         out chapter, out verse, out verseEnd, out chapterWord, out verseWord, out colon))
                     {
+                        bool correctionCue=Regex.IsMatch(normalized, @"\b(?:give me|make it|change it to|use)\b") ||
+                            Regex.IsMatch(normalized, @"\b(?:instead|rather)\b");
+                        bool heardVes=Regex.IsMatch(normalized,@"\bves\b");
+                        // A verse following a book and chapter that were both heard
+                        // explicitly is a complete explicit call split across
+                        // utterances by endpointing, rather than an ambiguous
+                        // contextual continuation. A correction or a "heard VES"
+                        // guess stays review-required.
+                        bool explicitSplit = contextFromExplicitBookChapter && !correctionCue && !heardVes;
+                        // Consumed either way: the pending call is finished, so the
+                        // flag must not survive to colour a later unrelated verse.
+                        contextFromExplicitBookChapter=false;
                         ScriptureDetection d = new ScriptureDetection();
                         d.Book = lastBook;
                         d.Chapter = lastChapter;
                         d.Verse = verse;
                         d.VerseEnd = verseEnd;
-                        bool correctionCue=Regex.IsMatch(normalized, @"\b(?:give me|make it|change it to|use)\b") ||
-                            Regex.IsMatch(normalized, @"\b(?:instead|rather)\b");
-                        d.EvidenceKind = correctionCue ? "correction" : "contextual";
-                        d.RequiresReview = true;
+                        d.EvidenceKind = correctionCue ? "correction" : (explicitSplit ? "explicit" : "contextual");
+                        d.RequiresReview = !explicitSplit;
                         d.Translation =
                             !string.IsNullOrEmpty(translation)
                                 ? translation
                                 : lastTranslation;
                         d.TranslationExplicit = translationExplicit || lastTranslationExplicit;
-                        d.Confidence = 0.80;
+                        d.Confidence = explicitSplit ? 0.97 : 0.80;
+                        d.CompleteExplicit = explicitSplit && verseEnd <= verse;
                         d.SourceText = text;
                         d.Reason = correctionCue ? "Possible verse correction within the active chapter; review before presenting" :
-                            Regex.IsMatch(normalized,@"\bves\b")?"Possible verse instruction: heard VES within the active chapter; review before presenting":"contextual verse continuation";
+                            Regex.IsMatch(normalized,@"\bves\b")?"Possible verse instruction: heard VES within the active chapter; review before presenting":
+                            explicitSplit?"book, chapter and verse across consecutive utterances":"contextual verse continuation";
                         return d;
                     }
                 }

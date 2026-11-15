@@ -55,7 +55,18 @@ $splitParser=New-Object ScriptureDetector
 $null=$splitParser.Feed('in a genesis chapter forty nine')
 $splitRange=$splitParser.Feed('verses three and verse four')
 $splitFirst=[SpeechPresentationPolicy]::Resolve($splitRange,$null,$false)
-if($splitFirst.ReferenceText -ne 'Genesis 49:3' -or !$splitFirst.RequiresReview -or $splitRange.VerseEnd -ne 4){throw 'Split contextual range must start at first verse and retain review requirement'}
+# A book and chapter both heard explicitly, with the verse arriving in the next
+# utterance, is a complete explicit call split by endpointing. It is live-eligible
+# and starts at its first verse. Previously this was marked contextual and
+# review-required, which made real references in a live service unusable.
+if($splitFirst.ReferenceText -ne 'Genesis 49:3' -or $splitFirst.RequiresReview -or $splitRange.VerseEnd -ne 4){throw 'Split explicit range must start at first verse and clear review'}
+if(-not [SpeechPresentationPolicy]::CanAutomate($splitFirst)){throw 'Split explicit range should be live-eligible'}
+# The anchor must still break when unrelated speech intervenes.
+$brokenParser=New-Object ScriptureDetector
+$null=$brokenParser.Feed('Mark chapter 2')
+$null=$brokenParser.Feed('I want to show you guys something here')
+$broken=$brokenParser.Feed("Let's start from verse five")
+if($broken -ne $null -and [SpeechPresentationPolicy]::CanAutomate([SpeechPresentationPolicy]::Resolve($broken,$null,$false))){throw 'Intervening speech did not break the explicit anchor'}
 $spokenNext=[SpeechPresentationPolicy]::Resolve($splitParser.Feed("that's a problem next verse"),$splitFirst,$true)
 if($spokenNext.ReferenceText -ne 'Genesis 49:4' -or [SpeechPresentationPolicy]::CanAutomate($spokenNext)){throw 'Punctuation-free continuation should be selectable, never automatically presented'}
 $chapterParser=New-Object ScriptureDetector

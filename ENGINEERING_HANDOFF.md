@@ -1,5 +1,73 @@
 # Gazely engineering handoff
 
+### 15 November — split references were classified contextual, so Auto refused them
+
+Operator report: with Auto selected and both mirrors on, Auto did not reach
+EasyWorship even when a reference resolved, and the stepped book-then-verse
+pre-fill did not happen.
+
+The operator's session log gave the exact speech, and it explains both symptoms at
+once. Nemotron's 700 ms endpointing had cut one reference into three finals:
+
+```
+03:09:59  "in genesis chapter"
+03:10:00  "forty nine"
+03:10:02  "verses three and verse four"
+03:10:02  Detected scripture: Genesis 49:3 - MEDIUM
+```
+
+Reproduced in isolation: the join machinery itself is sound. `pendingBook`
+becomes `Genesis`, the next utterance sets `lastChapter=49` and the parser logs
+*"Chapter heard; waiting for the verse"* — the book and chapter survive across
+utterances correctly. The defect was **classification**: when the verse finally
+arrived, the continuation path emitted `EvidenceKind="contextual"` with
+`RequiresReview=true` **unconditionally**, discarding the fact that the parser had
+explicitly heard both the book and the chapter. Contextual results are held by
+design, so Auto and speculation both refused a call the parser knew was explicit.
+Speculation additionally requires `Verse > 0` and no review, so it never pre-filled
+either — which is why the stepped pre-fill appeared dead.
+
+Fix: `contextFromExplicitBookChapter`, set when the book and chapter are both
+stated in one utterance, carried into the verse that completes the call. Such a
+result keeps `EvidenceKind="explicit"`, clears review, and is live-eligible. A
+correction cue or a "heard VES" guess still requires review, and a range still
+starts at its first verse. A bare verse with no preceding book+chapter is unchanged.
+
+**The suite caught a real regression in the first attempt.** `Test-ScriptureParser`
+failed with *"Conversational verse continuation did not retain the Mark 2 anchor"*:
+the flag survived an unrelated intervening sentence, so `"Mark chapter 2"` … `"I
+want to show you guys something here"` … `"Let's start from verse five"` became
+live-eligible. That is exactly the case the review requirement exists for. The flag
+now has a strict one-utterance window — it is consumed when the call completes and
+cleared when an utterance neither advances nor consumes it.
+
+Verified with seven focused checks: the operator's three-utterance speech is
+live-eligible; one-breath ranges and single verses remain eligible; a bare verse
+with no book, a verse after unrelated speech, and an anchor broken by an
+intervening sentence all still abstain.
+
+**Coverage gap this exposed.** No test had ever fed split-utterance input, even
+though the parser's join machinery exists for exactly that and endpointing
+produces it on real hardware. Phase 0 measured cue survival on already-joined
+text. The new assertions in `Test-QuotationIndex` now cover both the split case and
+the intervening-speech case, so this class of defect is covered. The old assertion
+that demanded `RequiresReview=true` for split references encoded the bug and was
+replaced.
+
+Validation: all twelve suites pass (parser 332/338, quotation 19, adapter 33,
+passage policy, scripture plan 11, plan lifecycle 11, speculation 19, autonomy 8,
+version navigation 24, chapter recovery 9, book recovery, speech lifecycle).
+Release `Gazely-Setup-Free-20261115-r2.exe` (SHA-256
+`B3E9EACE2181C51E221A631F2F7E8814901EA45AF11313F2B181446890374C90`) carries the
+fix; its installed executable matches the candidate
+`D09091459F323AE26E81925527D9858F9BA492D9F27AB7A8F53CAB1151562A18`. Production
+and rollback builds unchanged.
+
+Still open: this fix means more calls now qualify for automatic presentation than
+before, so the operator's ear is the acceptance test; the interface suite's
+assertions below its stop point remain unexecuted; and neither speculation's
+timing nor the plan strip has been exercised against a live service.
+
 ### 15 November — documentation refresh and the first post-Phase-5 installer
 
 **Documentation.** `README.md` and `TECHNICAL_GUIDE.md` now describe the shipped
